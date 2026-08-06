@@ -27,7 +27,7 @@ import os
 import sys
 import glob
 import urllib.request
-from datetime import datetime, date
+from datetime import datetime, date, timedelta, timezone
 
 # ===== 配置 =====
 APP_KEY = os.environ.get('DINGTALK_APP_KEY', '')
@@ -819,6 +819,7 @@ html { scroll-behavior: smooth; }
 .metric-card.clickable.active::after { content: "点击收起"; color: #3498db; }
 /* 预览提示 */
 .preview-hint { margin-top: 10px; padding: 6px 12px; background: #f0f7ff; border-radius: 6px; font-size: 12px; color: #1a5f9e; }
+.snapshot-note { margin-top: 8px; padding: 6px 12px; background: #fafafa; border-left: 3px solid #bdc3c7; border-radius: 4px; font-size: 11px; color: #7f8c8d; line-height: 1.6; }
 /* 关注项标签（折叠态可见） */
 .mdp-blocker-tag { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 8px; background: #f0f4f8; color: #4a6572; font-weight: 600; margin-left: 6px; vertical-align: 1px; }
 /* 关注项详情（展开态可见） */
@@ -1575,6 +1576,8 @@ def _gen_o_bar_chart(a, comparison):
 def generate_html(a, today_str, week_str='', comparison=None):
     """生成GM视角HTML报告（本周进展亮点置顶，服务端渲染+JS增强交互）"""
     krs = sorted(a['krs'], key=_o_sort_key)
+    # 分析时间（北京时间 UTC+8），用于说明本报告对应的表格快照时刻
+    analysis_time = (datetime.now(timezone.utc) + timedelta(hours=8)).strftime('%Y-%m-%d %H:%M')
     # 有历史快照时，"本周有进展"显示真正新增进展数；首周显示所有有描述的KR数
     updated_count_display = len(comparison['truly_updated']) if comparison else a['updated_count']
 
@@ -1701,6 +1704,7 @@ def generate_html(a, today_str, week_str='', comparison=None):
   </div>
   <div class="meta">
     <span>日期：{today_str}</span>
+    <span>分析时间：{analysis_time}（北京时间）</span>
     <span>数据来源：协同待办事项表 · 网点OKR推进</span>
     <span class="meta-tag">云端自动生成</span>
   </div>
@@ -1726,6 +1730,7 @@ def generate_html(a, today_str, week_str='', comparison=None):
     <li class="{'warn' if a["stale_count"] > 0 else ''}">{'<strong>' + str(a["stale_count"]) + '项KR本周停滞</strong>（无进展描述或进度为0）' if a["stale_count"] > 0 else '全部KR本周均有进展'}</li>
   </ul>
   <div class="preview-hint">点击下方指标卡可展开对应KR明细 · 点击KR行可查看进展描述全文</div>
+  <div class="snapshot-note">本报告数据对应分析时间（{analysis_time}）的表格快照，如后续表格有更新，数字以最新一期周报为准。</div>
 </div>
 
 <div class="metrics" id="sec-metrics">

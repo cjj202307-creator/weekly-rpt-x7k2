@@ -4,18 +4,21 @@
 
 - ✅ GitHub Pages 链接已可用：`https://cjj202307-creator.github.io/weekly-rpt-x7k2/`
 - ✅ 工作流已在正确路径 `.github/workflows/okr-weekly.yml`（状态：active）
-- ✅ `cloud/okr_cloud_report.py` 已推送（最新v3：统一色调 + 周环比 + 环形图/条形图 + 可折叠）
+- ✅ `cloud/okr_cloud_report.py` 已推送（最新v3：统一色调 + 周环比 + 环形图/条形图 + 可折叠 + **HTML历史归档**）
 - ✅ `docs/index.html` 已推送（W32基线报告，Pages已可访问）
-- ⚠️ 工作流文件需手动更新（加入snapshot持久化步骤，否则周环比对比不生效）
-- ❓ Secrets 和 Variable 需确认是否已配置
+- ⚠️ 工作流文件需手动更新（加入snapshot持久化 + HTML归档捕获，否则周环比对比/历史回看不生效）
+- ✅ Secrets 和 Variable 此前已确认配置成功（10:58 workflow_dispatch运行结论success）
 
 ---
 
-## 你需要做的 3 步（全部在 GitHub 网页操作）
+## 你需要做的步骤（GitHub 网页操作）
 
-### Step 1：更新工作流文件（加入snapshot持久化）
+> **核心必做**：Step 1 更新工作流文件（否则周环比对比 + 历史归档不生效）。
+> Step 2/3 为确认项（此前已配好，可跳过）；Step 4 验证；Step 5 通知我。
 
-> 这步让周环比对比功能生效。不做也能跑，只是每周都显示"首周基准数据"。
+### Step 1：更新工作流文件（加入snapshot持久化 + 归档捕获）
+
+> 这步让**周环比对比**和**历史报告归档**两个功能生效。不做也能跑，只是每周都显示"首周基准数据"且看不到历史报告。
 
 1. 打开 https://github.com/cjj202307-creator/weekly-rpt-x7k2/blob/main/.github/workflows/okr-weekly.yml
 2. 点右上角 **铅笔图标**（Edit）
@@ -53,11 +56,11 @@ jobs:
 
       - name: Deploy HTML to GitHub Pages and persist snapshot
         run: |
-          mkdir -p docs
+          mkdir -p docs/archive
           cp cloud/okr-report.html docs/index.html
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/index.html
+          git add docs/
           git add data/snapshots/
           git commit -m "Update OKR report HTML and snapshot ($(date +%Y-%m-%d))" || echo "No changes to commit"
           git push
@@ -65,7 +68,7 @@ jobs:
 
 4. 点 **Commit changes**
 
-> **变化点**：最后的 Deploy 步骤增加了 `git add data/snapshots/`，让每周数据快照持久化到仓库，下周自动对比。
+> **变化点**：最后的 Deploy 步骤把 `git add docs/index.html` 改成 `git add docs/`（捕获整个docs目录，含新增的 `docs/archive/` 历史归档），并保留 `git add data/snapshots/`（周环比快照持久化）。脚本会自动在 `docs/archive/` 生成带日期的报告副本和归档索引页。
 
 ---
 

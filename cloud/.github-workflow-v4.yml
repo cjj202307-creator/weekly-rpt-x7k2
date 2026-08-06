@@ -38,7 +38,7 @@ jobs:
           DINGTALK_USER_ID: '17397552280041830'
           REPORT_URL: ${{ vars.REPORT_URL }}
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
-          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL || 'qwen-plus' }}
         run: python cloud/okr_cloud_report.py --skip-send
 
       - name: Commit & push report history

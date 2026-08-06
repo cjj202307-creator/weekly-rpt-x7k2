@@ -252,6 +252,12 @@ def parse_records(records):
 
     return krs
 
+def _o_sort_key(kr):
+    """按O编号数字排序的key（兼容 'O1'/'O2'/'O10' 等格式）"""
+    o = str(kr.get('o', '')).strip()
+    m = __import__('re').search(r'\d+', o)
+    return (int(m.group()) if m else 0, o)
+
 def analyze(krs, today):
     """分析数据，生成指标（GM视角：以关键结果描述=最新进展为核心）"""
     # O分组平均
@@ -1408,15 +1414,15 @@ def _gen_metric_panels(krs, a, comparison=None):
         updated_krs = [(k, '') for k in krs if a['has_update'](k)]
         updated_title = '本周有实质进展的KR（首周基准：所有有描述更新的KR）'
     # 所有KR列表统一按 O1→O2→O3→O4 排序
-    updated_krs = sorted(updated_krs, key=lambda x: x[0]['o'])
+    updated_krs = sorted(updated_krs, key=lambda x: _o_sort_key(x[0]))
 
     # 3-6. 其他KR列表类指标
     kr_groups = {
         'updated': (updated_title, updated_krs),
-        'done': ('已达成的KR', sorted([(k, '') for k in krs if k['progress'] == 100], key=lambda x: x[0]['o'])),
-        'overdue': ('超过目标日期未完成的KR', sorted([(k, '') for k in krs if a['is_overdue'](k)], key=lambda x: x[0]['o'])),
-        'stale': ('停滞KR（无进展描述或进度为0）', sorted([(k, '') for k in krs if a['is_stale'](k)], key=lambda x: x[0]['o'])),
-        'untracked': ('未录入进度的KR', sorted([(k, '') for k in krs if k['progress'] is None], key=lambda x: x[0]['o'])),
+        'done': ('已达成的KR', sorted([(k, '') for k in krs if k['progress'] == 100], key=lambda x: _o_sort_key(x[0]))),
+        'overdue': ('超过目标日期未完成的KR', sorted([(k, '') for k in krs if a['is_overdue'](k)], key=lambda x: _o_sort_key(x[0]))),
+        'stale': ('停滞KR（无进展描述或进度为0）', sorted([(k, '') for k in krs if a['is_stale'](k)], key=lambda x: _o_sort_key(x[0]))),
+        'untracked': ('未录入进度的KR', sorted([(k, '') for k in krs if k['progress'] is None], key=lambda x: _o_sort_key(x[0]))),
     }
     for key, (title, klist) in kr_groups.items():
         if not klist:
@@ -1568,7 +1574,7 @@ def _gen_o_bar_chart(a, comparison):
 
 def generate_html(a, today_str, week_str='', comparison=None):
     """生成GM视角HTML报告（本周进展亮点置顶，服务端渲染+JS增强交互）"""
-    krs = sorted(a['krs'], key=lambda k: k['o'])
+    krs = sorted(a['krs'], key=_o_sort_key)
     # 有历史快照时，"本周有进展"显示真正新增进展数；首周显示所有有描述的KR数
     updated_count_display = len(comparison['truly_updated']) if comparison else a['updated_count']
 

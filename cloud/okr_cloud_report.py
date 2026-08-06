@@ -512,6 +512,21 @@ def get_iso_week(d=None):
     iso = d.isocalendar()
     return f'W{iso[1]:02d}'
 
+def build_notify_md(today_str, report_url, week_str=''):
+    """极简钉钉通知：仅标题 + 一句引导 + 链接，完整内容见网页报告。"""
+    title_suffix = f' {week_str}' if week_str else ''
+    lines = []
+    lines.append(f'# 全国网点OKR推进周报{title_suffix}')
+    lines.append('')
+    lines.append('本周报告已生成，完整内容（指标 · 进度 · 风险 · 历史周报）请点击下方查看 👇')
+    lines.append('')
+    if report_url:
+        lines.append(f'[📊 查看完整报告]({report_url})')
+    else:
+        lines.append('> 报告链接暂未配置（REPORT_URL 为空）')
+    return '\n'.join(lines)
+
+
 def generate_markdown(a, today_str, report_url=None, week_str='', comparison=None):
     """生成Markdown摘要（GM结构化精简版：不照搬描述原文，只列要点，细节看网页）"""
     krs = a['krs']
@@ -1989,9 +2004,9 @@ def main():
     snapshot_path = save_snapshot(a, today_str, week_str)
     print(f'   快照已保存: {snapshot_path}')
 
-    # 6. 生成Markdown摘要（含报告链接）
-    print('6. 生成Markdown摘要...')
-    md = generate_markdown(a, today_str, report_url=REPORT_URL, week_str=week_str, comparison=comparison)
+    # 6. 生成钉钉通知（极简版：标题 + 链接，详情见网页报告）
+    print('6. 生成钉钉通知（极简）...')
+    md = build_notify_md(today_str, REPORT_URL, week_str)
     print(f'   报告URL: {REPORT_URL}')
 
     # 7. 发送钉钉消息（个人单聊 + 群）

@@ -1603,7 +1603,14 @@ def build_data_summary_text(a, comparison=None):
     concerns = []
     for k in krs:
         if a['is_risk'](k) or a['is_overdue'](k):
-            fol = '、'.join(f.get('name', '') for f in k.get('followers', []) if f.get('name')) or '未指定'
+            fol_list = k.get('followers') or []
+            fol_names = []
+            for f in fol_list:
+                if isinstance(f, dict):
+                    fol_names.append(f.get('name') or '')
+                elif isinstance(f, str):
+                    fol_names.append(f)
+            fol = '、'.join(n for n in fol_names if n) or '未指定'
             blk = (k.get('blocker') or '').strip()
             concerns.append(f'  · {k["o"]} {k["kr"]}（进度{k.get("progress") or 0}%，跟进人{fol}）{("卡点："+blk) if blk else ""}')
     if concerns:

@@ -621,7 +621,7 @@ CSS_TEXT = """
 body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; background: #f5f6f8; color: #2c3e50; line-height: 1.6; }
 .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
 .header { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); border-radius: 18px; padding: 34px 38px; margin-bottom: 22px; box-shadow: 0 10px 40px rgba(26,26,46,0.2); color: #fff; }
-.header-logo { margin-bottom: 18px; display: inline-block; padding: 10px 18px; background: #ffffff; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+.header-logo { margin-bottom: 18px; display: inline-block; padding: 10px 18px; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.20); border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.18); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
     .header-logo img { max-height: 54px; max-width: 100%; height: auto; width: auto; display: block; }
 .header-brand { display: flex; align-items: center; gap: 18px; margin-bottom: 16px; }
 .header-icon { width: 52px; height: 52px; border-radius: 14px; background: linear-gradient(135deg, #3498db 0%, #1a5f9e 100%); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; color: #fff; letter-spacing: 1px; box-shadow: 0 4px 12px rgba(52,152,219,0.35); flex-shrink: 0; }

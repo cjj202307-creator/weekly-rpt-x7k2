@@ -1583,7 +1583,7 @@ def _gen_o_bar_chart(a, comparison):
 </div>''')
     return ''.join(bars)
 
-# ===== AI 管理层洞察（通义千问 DashScope，OpenAI 兼容接口）=====
+# ===== AI 管理层洞察（DeepSeek，OpenAI 兼容接口）=====
 
 def build_data_summary_text(a, comparison=None):
     """构造给大模型的精简数据摘要（结构化、不泄露密钥）。失败也不影响主流程。"""
@@ -1593,7 +1593,8 @@ def build_data_summary_text(a, comparison=None):
     for k in krs:
         o_prog.setdefault(k['o'], []).append(k.get('progress') or 0)
     lines = []
-    lines.append('集团四大战略目标OKR推进数据（分析时点快照）：')
+    today_cn = (datetime.now(timezone.utc) + timedelta(hours=8)).strftime('%Y年%m月%d日')
+    lines.append(f'集团四大战略目标OKR推进数据（分析时点：{today_cn}）：')
     lines.append(f'- 整体平均进度：{a["overall_avg"]}%')
     lines.append(f'- KR总数：{len(krs)}项；本周有进展：{a["updated_count"]}项；已达成：{a["done_count"]}项；停滞：{a["stale_count"]}项；超过目标日期未完成：{a["overdue_count"]}项；未追踪：{a["untracked_count"]}项')
     for o in sorted(o_prog.keys(), key=lambda x: int(''.join(ch for ch in x if ch.isdigit()) or 0)):
@@ -1626,15 +1627,21 @@ def call_llm_insight(api_key, model, data_text):
     if not api_key:
         return None
     url = 'https://api.deepseek.com/chat/completions'
+    today_cn = (datetime.now(timezone.utc) + timedelta(hours=8)).strftime('%Y年%m月%d日')
     system = (
-        '你是集团总经理的AI战略助手。基于提供的OKR推进数据，输出面向管理层的洞察。'
-        '要求：① 用简体中文；② 客观、口语化、可直接给总经理看；③ 不虚构数据中不存在的内容；'
-        '④ 严格只输出JSON，格式：'
-        '{"summary":"一段60-100字的管理层白话摘要，概括整体态势与重点",'
-        '"risks":["关键风险点1","关键风险点2"],'
-        '"actions":["需要谁在什么节点前推进什么的具体建议1","建议2"]}'
+        '你是集团OKR推进数据分析助手。基于提供的OKR推进数据，输出客观、中立的进展分析。'
+        f'当前日期是{today_cn}。'
+        '严格要求：'
+        '① 用简体中文，客观、简洁、可直接给管理层看；'
+        '② 只基于数据中存在的内容分析，不虚构任何数据中不存在的信息；'
+        '③ 不臆想组织架构或职位名称——数据中只有"跟进人"姓名，不要出现"总经理办公室""副总裁""运营总监"等任何虚构职位；'
+        '④ 语言中立客观，不使用归因性或指责性措辞——禁止使用"领导缺失""不重视""失职""不作为""推诿"等负面定性词，只客观描述进度状态和卡点事实；'
+        '⑤ 不指派任务、不安排人员、不设截止日期——只做客观进展分析，不做行动指令；'
+        '⑥ 严格只输出JSON，格式：'
+        '{"summary":"一段80-120字客观概括整体态势与各目标进展差异",'
+        '"risks":["客观描述的风险点1（基于进度/卡点事实，不带指责）","风险点2"]}'
     )
-    user = f'以下是本周OKR推进数据摘要：\n{data_text}\n\n请输出上述JSON。'
+    user = f'以下是本周OKR推进数据摘要（当前日期{today_cn}）：\n{data_text}\n\n请输出上述JSON。'
     body = {
         'model': model,
         'messages': [
@@ -1643,7 +1650,7 @@ def call_llm_insight(api_key, model, data_text):
         ],
         'response_format': {'type': 'json_object'},
         'temperature': 0.3,
-        'max_tokens': 900,
+        'max_tokens': 700,
     }
     headers = {'Authorization': f'Bearer {api_key}'}
     try:
@@ -1669,21 +1676,15 @@ def _gen_ai_insight_html(insight):
         return ''
     summary = (insight.get('summary') or '').strip()
     risks = insight.get('risks') or []
-    actions = insight.get('actions') or []
     parts = ['<div class="section ai-insight" id="sec-ai">', '  <h2>AI 管理层洞察</h2>']
     if summary:
         parts.append(f'  <div class="ai-summary">{_esc(summary)}</div>')
     if risks:
-        parts.append('  <div class="ai-block"><div class="ai-block-title">⚠️ 关键风险</div><ul>')
+        parts.append('  <div class="ai-block"><div class="ai-block-title">⚠️ 重点关注</div><ul>')
         for r in risks[:5]:
             parts.append(f'    <li>{_esc(r)}</li>')
         parts.append('  </ul></div>')
-    if actions:
-        parts.append('  <div class="ai-block"><div class="ai-block-title">✅ 行动建议</div><ul>')
-        for ac in actions[:6]:
-            parts.append(f'    <li>{_esc(ac)}</li>')
-        parts.append('  </ul></div>')
-    parts.append('  <div class="ai-note">本板块由 AI（通义千问）基于表格数据自动生成，仅供参考，请以最新实际进展为准。</div>')
+    parts.append('  <div class="ai-note">本板块由 AI（DeepSeek）基于表格数据自动生成，仅供参考，请以最新实际进展为准。</div>')
     parts.append('</div>')
     return '\n'.join(parts)
 

@@ -1931,124 +1931,135 @@ def _gen_archive_index(archive_dir):
 
 def main():
     skip_send = '--skip-send' in sys.argv
+    send_only = '--send-only' in sys.argv
     allow_no_url = '--allow-no-url' in sys.argv
     today = date.today()
     today_str = today.isoformat()
     week_str = get_iso_week(today)
-    print(f'[{datetime.now().isoformat()}] OKR周报云端脚本启动{"（仅生成，不发送）" if skip_send else ""}')
+    mode_label = ''
+    if skip_send:
+        mode_label = '（仅生成，不发送）'
+    elif send_only:
+        mode_label = '（仅发送，不生成）'
+    print(f'[{datetime.now().isoformat()}] OKR周报云端脚本启动{mode_label}')
     print(f'   本周：{week_str}')
 
-    # URL检查：无URL且未显式允许，则拒绝发送（避免无链接推送）
-    if not skip_send and not REPORT_URL and not allow_no_url:
-        print(f'   ❌ 错误：REPORT_URL 未设置，拒绝发送（避免推送无链接消息）')
-        print(f'   正确流程：')
-        print(f'     1) python okr_cloud_report.py --skip-send   # 只生成HTML')
-        print(f'     2) 部署HTML到网络托管（CloudStudio/GitHub Pages）获取URL')
-        print(f'     3) REPORT_URL=<URL> python okr_cloud_report.py   # 生成+发送（含链接）')
-        print(f'   如确实需要无链接推送（不推荐），加 --allow-no-url')
-        sys.exit(2)
+    # ===== 阶段A：拉取数据并生成报告（--send-only 时跳过） =====
+    if not send_only:
+        # 1. 获取token
+        print('1. 获取access token...')
+        token = get_access_token()
+        print(f'   token获取成功')
 
-    # 1. 获取token
-    print('1. 获取access token...')
-    token = get_access_token()
-    print(f'   token获取成功')
-
-    # 2. 获取unionId
-    print('2. 获取unionId...')
-    union_id = get_union_id(token, USER_ID)
-    if not union_id:
-        if not skip_send:
+        # 2. 获取unionId
+        print('2. 获取unionId...')
+        union_id = get_union_id(token, USER_ID)
+        if not union_id:
             msg = f'## OKR周报云端脚本错误\n\n获取unionId失败，请确保应用已开通 **qyapi_get_member** 权限。\n\n申请链接：https://open-dev.dingtalk.com/appscope/apply?content={APP_KEY}%23qyapi_get_member'
             send_robot_message(token, 'OKR周报云端脚本错误', msg)
-        print(f'   错误：获取unionId失败')
-        return
-    print(f'   unionId获取成功')
+            print(f'   错误：获取unionId失败')
+            return
+        print(f'   unionId获取成功')
 
-    # 3. 拉取AI表格数据
-    print('3. 拉取AI表格数据...')
-    records = list_records(token, union_id)
-    if records is None:
-        if not skip_send:
+        # 3. 拉取AI表格数据
+        print('3. 拉取AI表格数据...')
+        records = list_records(token, union_id)
+        if records is None:
             msg = f'## OKR周报云端脚本错误\n\n拉取AI表格数据失败，请确保应用已开通 **Notable.Base.Read.All** 权限。\n\n申请链接：https://open-dev.dingtalk.com/appscope/apply?content={APP_KEY}%23Notable.Base.Read.All'
             send_robot_message(token, 'OKR周报云端脚本错误', msg)
-        print(f'   错误：拉取AI表格数据失败')
-        return
-    print(f'   获取到{len(records)}条记录')
+            print(f'   错误：拉取AI表格数据失败')
+            return
+        print(f'   获取到{len(records)}条记录')
 
-    # 4. 解析和分析
-    print('4. 解析和分析数据...')
-    krs = parse_records(records)
-    a = analyze(krs, today)
-    print(f'   有效KR: {len(krs)}, 平均进度: {a["overall_avg"]}%, 本周有进展: {a["updated_count"]}, 停滞: {a["stale_count"]}, 超目标日期: {a["overdue_count"]}')
+        # 4. 解析和分析
+        print('4. 解析和分析数据...')
+        krs = parse_records(records)
+        a = analyze(krs, today)
+        print(f'   有效KR: {len(krs)}, 平均进度: {a["overall_avg"]}%, 本周有进展: {a["updated_count"]}, 停滞: {a["stale_count"]}, 超目标日期: {a["overdue_count"]}')
 
-    # 4.5 读取上周快照并计算环比
-    print('4.5. 计算周环比...')
-    prev_snapshot = load_previous_snapshot(today_str)
-    comparison = compare_with_previous(a, prev_snapshot)
-    if comparison:
-        print(f'   对比上周 {comparison["prev_week"]}({comparison["prev_date"]})：平均进度Δ{comparison["overall_avg_delta"]:+d}%，{len(comparison["truly_updated"])}项新进展，{len(comparison["progress_gained"])}项进度提升')
-    else:
-        print('   无历史快照，本周为首周基准')
+        # 4.5 读取上周快照并计算环比
+        print('4.5. 计算周环比...')
+        prev_snapshot = load_previous_snapshot(today_str)
+        comparison = compare_with_previous(a, prev_snapshot)
+        if comparison:
+            print(f'   对比上周 {comparison["prev_week"]}({comparison["prev_date"]}): 平均进度Δ{comparison["overall_avg_delta"]:+d}%，{len(comparison["truly_updated"])}项新进展，{len(comparison["progress_gained"])}项进度提升')
+        else:
+            print('   无历史快照，本周为首周基准')
 
-    # 5. 生成HTML报告
-    print('5. 生成HTML报告...')
-    html = generate_html(a, today_str, week_str, comparison=comparison)
-    html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'okr-report.html')
-    with open(html_path, 'w', encoding='utf-8') as f:
-        f.write(html)
-    print(f'   HTML已保存: {html_path} ({len(html)} chars)')
-
-    # 5.1 保存带日期的归档副本 + 生成归档索引（用于历史回看）
-    try:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        repo_root = os.path.dirname(script_dir)  # cloud/ -> 仓库根目录
-        archive_dir = os.path.join(repo_root, 'docs', 'archive')
-        os.makedirs(archive_dir, exist_ok=True)
-        archive_path = os.path.join(archive_dir, f'okr-report-{today_str}.html')
-        with open(archive_path, 'w', encoding='utf-8') as f:
+        # 5. 生成HTML报告
+        print('5. 生成HTML报告...')
+        html = generate_html(a, today_str, week_str, comparison=comparison)
+        html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'okr-report.html')
+        with open(html_path, 'w', encoding='utf-8') as f:
             f.write(html)
-        print(f'   归档HTML已保存: {archive_path}')
-        _gen_archive_index(archive_dir)
-        print(f'   归档索引已更新')
-    except Exception as e:
-        print(f'   警告：归档保存失败（不影响主流程）: {e}', file=sys.stderr)
+        print(f'   HTML已保存: {html_path} ({len(html)} chars)')
 
-    if skip_send:
-        print(f'[{datetime.now().isoformat()}] 完成（--skip-send模式，未发送消息）')
-        print(f'   提示：部署 {html_path} 到网络托管后，设置REPORT_URL重跑即可发送')
-        return
+        # 5.1 保存带日期的归档副本 + 生成归档索引（用于历史回看）
+        try:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            repo_root = os.path.dirname(script_dir)  # cloud/ -> 仓库根目录
+            archive_dir = os.path.join(repo_root, 'docs', 'archive')
+            os.makedirs(archive_dir, exist_ok=True)
+            archive_path = os.path.join(archive_dir, f'okr-report-{today_str}.html')
+            with open(archive_path, 'w', encoding='utf-8') as f:
+                f.write(html)
+            print(f'   归档HTML已保存: {archive_path}')
+            _gen_archive_index(archive_dir)
+            print(f'   归档索引已更新')
+        except Exception as e:
+            print(f'   警告：归档保存失败（不影响主流程）: {e}', file=sys.stderr)
 
-    # 5.5 保存本次快照（用于下周环比）
-    print('5.5. 保存数据快照...')
-    snapshot_path = save_snapshot(a, today_str, week_str)
-    print(f'   快照已保存: {snapshot_path}')
+        # 5.5 保存本次快照（用于下周环比）
+        print('5.5. 保存数据快照...')
+        snapshot_path = save_snapshot(a, today_str, week_str)
+        print(f'   快照已保存: {snapshot_path}')
 
-    # 6. 生成钉钉通知（极简版：标题 + 链接，详情见网页报告）
-    print('6. 生成钉钉通知（极简）...')
-    md = build_notify_md(today_str, REPORT_URL, week_str)
-    print(f'   报告URL: {REPORT_URL}')
+        if skip_send:
+            print(f'[{datetime.now().isoformat()}] 完成（--skip-send模式，已生成报告和快照，未发送消息）')
+            return
 
-    # 7. 发送钉钉消息（个人单聊 + 群）
-    print('7. 发送钉钉消息...')
-    msg_title = f'全国网点OKR推进周报 {week_str}（{today_str}）'
+    # ===== 阶段B：发送钉钉通知（--skip-send 时跳过） =====
+    if not skip_send:
+        # URL检查：无URL且未显式允许，则拒绝发送（避免无链接推送）
+        if not REPORT_URL and not allow_no_url:
+            print(f'   错误：REPORT_URL 未设置，拒绝发送（避免推送无链接消息）')
+            print(f'   正确流程：')
+            print(f'     1) python okr_cloud_report.py --skip-send   # 只生成HTML')
+            print(f'     2) 部署HTML到网络托管（CloudStudio/GitHub Pages）获取URL')
+            print(f'     3) REPORT_URL=<URL> python cloud/okr_cloud_report.py --send-only   # 仅发送消息')
+            print(f'   如确实需要无链接推送（不推荐），加 --allow-no-url')
+            sys.exit(2)
 
-    # 7.1 个人单聊推送
-    print('   7.1 发送给个人（单聊）...')
-    result = send_robot_message(token, msg_title, md)
-    if result.get('processQueryKey'):
-        print(f'   个人发送成功！标题：{msg_title}')
-    else:
-        print(f'   个人发送失败: {json.dumps(result, ensure_ascii=False)}')
+        # 6. 生成钉钉通知（极简版：标题 + 链接，详情见网页报告）
+        print('6. 生成钉钉通知（极简）...')
+        md = build_notify_md(today_str, REPORT_URL, week_str)
+        print(f'   报告URL: {REPORT_URL}')
 
-    # 7.2 群推送（配置 webhook 时生效）
-    print('   7.2 推送到群...')
-    gresult = send_group_message(GROUP_WEBHOOK, msg_title, md)
-    if gresult is None:
-        print('   群推送跳过（未配置 DINGTALK_GROUP_WEBHOOK）')
-    elif gresult.get('errcode') == 0:
-        print(f'   群发送成功！标题：{msg_title}')
-    else:
-        print(f'   群发送失败: {json.dumps(gresult, ensure_ascii=False)}')
+        # 7. 获取token并发送钉钉消息（个人单聊 + 群）
+        print('7. 获取access token...')
+        token = get_access_token()
+        print('   token获取成功')
+
+        print('8. 发送钉钉消息...')
+        msg_title = f'全国网点OKR推进周报 {week_str}（{today_str}）'
+
+        # 8.1 个人单聊推送
+        print('   8.1 发送给个人（单聊）...')
+        result = send_robot_message(token, msg_title, md)
+        if result.get('processQueryKey'):
+            print(f'   个人发送成功！标题：{msg_title}')
+        else:
+            print(f'   个人发送失败: {json.dumps(result, ensure_ascii=False)}')
+
+        # 8.2 群推送（配置 webhook 时生效）
+        print('   8.2 推送到群...')
+        gresult = send_group_message(GROUP_WEBHOOK, msg_title, md)
+        if gresult is None:
+            print('   群推送跳过（未配置 DINGTALK_GROUP_WEBHOOK）')
+        elif gresult.get('errcode') == 0:
+            print(f'   群发送成功！标题：{msg_title}')
+        else:
+            print(f'   群发送失败: {json.dumps(gresult, ensure_ascii=False)}')
 
     print(f'[{datetime.now().isoformat()}] 完成')
 

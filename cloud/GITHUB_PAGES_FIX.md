@@ -4,25 +4,26 @@
 
 - ✅ GitHub Pages 链接已可用：`https://cjj202307-creator.github.io/weekly-rpt-x7k2/`
 - ✅ 工作流已在正确路径 `.github/workflows/okr-weekly.yml`
-- ✅ `cloud/okr_cloud_report.py` 已推送（最新版：统一色调 + 周环比 + 环形图/条形图 + 可折叠 + HTML历史归档 + 分析时间 + 按O排序）
-- ⚠️ 工作流文件需要手动更新为 **v3 版本**（修正 action 版本错误 + 改成"先部署后推送"顺序）
+- ✅ `cloud/okr_cloud_report.py` 已推送（最新版：统一色调 + 周环比 + 环形图/条形图 + 可折叠 + HTML历史归档 + 分析时间 + 按O排序 + 先部署后发送）
+- ⚠️ 工作流文件需要手动更新为 **v4 版本**（修复 v3 的 YAML 语法错误）
 - ⚠️ 需要把 cron 改成周四 17:30（`30 9 * * 4`）
 - ⚠️ 需要新增 Secret `DINGTALK_GROUP_WEBHOOK` 才能群推送
 
 ---
 
-## 重要：v2 工作流为什么失败
+## 重要：v3 工作流为什么失败
 
-如果你已经按上一版复制过工作流，可能会看到 workflow run 失败。原因是上一版用了不存在的 action 版本：
+v3 版 workflow 里把等待 Pages 部署的脚本直接写在了 workflow 的 `run:` 步骤中，包含一段 inline Python heredoc。这段代码的缩进导致了 **YAML 语法错误**，所以：
 
-- ❌ `actions/checkout@v5`（不存在） → ✅ 改成 `actions/checkout@v4`
-- ❌ `actions/setup-python@v6`（不存在） → ✅ 改成 `actions/setup-python@v5`
+- workflow run 一触发就失败（jobs 为空）
+- GitHub Actions 页面上**没有显示 "Run workflow" 按钮**
+- Pages 部署也被连带取消
 
-下面 v3 版本已经修正。请直接用 v3 覆盖 `.github/workflows/okr-weekly.yml`。
+**v4 已修复**：把等待逻辑抽到了独立的 `cloud/wait_for_pages.py` 文件中，workflow 只调用一行命令，不再出现 inline heredoc 缩进问题。
 
 ---
 
-## Step 1：更新工作流文件为 v3
+## Step 1：更新工作流文件为 v4
 
 1. 打开 https://github.com/cjj202307-creator/weekly-rpt-x7k2/blob/main/.github/workflows/okr-weekly.yml
 2. 点右上角 **铅笔图标**（Edit）
@@ -73,41 +74,10 @@ jobs:
       - name: Wait for GitHub Pages deployment
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
         run: |
-          echo "Waiting for GitHub Pages deployment..."
           latest_sha=$(git rev-parse HEAD)
-          echo "Latest commit SHA: $latest_sha"
-          export LATEST_SHA="$latest_sha"
-          for i in {1..30}; do
-            resp=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "https://api.github.com/repos/${{ github.repository }}/pages/deployments?per_page=5")
-            status=$(echo "$resp" | python -c "
-import sys, json, os
-sha = os.environ.get('LATEST_SHA', '')
-deployments = json.load(sys.stdin)
-if not isinstance(deployments, list):
-    print('unknown')
-    sys.exit(0)
-for d in deployments:
-    if d.get('sha') == sha:
-        print(d.get('status', 'unknown'))
-        sys.exit(0)
-print('not_found')
-")
-            echo "Attempt $i: Pages deployment status = $status"
-            if [ "$status" = "success" ]; then
-              echo "Pages deployment succeeded"
-              exit 0
-            elif [ "$status" = "errored" ]; then
-              echo "Pages deployment failed"
-              exit 1
-            fi
-            sleep 10
-          done
-          echo "Timeout waiting for Pages deployment"
-          exit 1
+          python cloud/wait_for_pages.py "$REPO" "$latest_sha"
 
       - name: Send OKR Report Notifications
         env:
@@ -121,11 +91,12 @@ print('not_found')
 
 4. 点 **Commit changes**
 
-> **v3 关键变化**：
-> 1. 修正 action 版本为 `checkout@v4` / `setup-python@v5`
-> 2. 顺序改为：生成报告 → 推送到仓库 → **等待 Pages 部署成功** → 发送钉钉消息。这样你收到链接时，页面一定已是最新版。
-> 3. cron 改为周四 09:30 UTC = 北京时间 17:30
-> 4. 增加 `DINGTALK_GROUP_WEBHOOK` Secret 用于群推送
+> **v4 关键变化**：
+> 1. 修正 v3 的 YAML 语法错误（inline Python heredoc 缩进问题）
+> 2. 等待 Pages 部署的逻辑放到 `cloud/wait_for_pages.py`，workflow 只调用一行命令
+> 3. 顺序：生成报告 → 推送到仓库 → **等待 Pages 部署成功** → 发送钉钉消息
+> 4. cron 改为周四 09:30 UTC = 北京时间 17:30
+> 5. 增加 `DINGTALK_GROUP_WEBHOOK` Secret 用于群推送
 
 ---
 
@@ -161,11 +132,12 @@ print('not_found')
 
 1. 打开 https://github.com/cjj202307-creator/weekly-rpt-x7k2/actions
 2. 左侧选 **OKR Weekly Report**
-3. 点 **Run workflow** → 确认分支 `main` → 点 **Run**
-4. 等待运行完成，日志应依次显示：
+3. 此时右上角应该出现 **Run workflow** 按钮
+4. 点 **Run workflow** → 确认分支 `main` → 点 **Run**
+5. 等待运行完成，日志应依次显示：
    - `Generate OKR Report`：生成 HTML
    - `Deploy HTML to GitHub Pages`：推送到仓库
-   - `Wait for GitHub Pages deployment`：轮询直到 `status=success`
+   - `Wait for GitHub Pages deployment`：轮询直到 `Pages deployment succeeded`
    - `Send OKR Report Notifications`：个人 + 群消息发送成功
 
 验证成功后，**每周四 17:30 自动执行**，无需开电脑。

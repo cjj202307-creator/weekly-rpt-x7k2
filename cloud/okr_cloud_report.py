@@ -35,6 +35,7 @@ APP_SECRET = os.environ.get('DINGTALK_APP_SECRET', '')
 USER_ID = os.environ.get('DINGTALK_USER_ID', '17397552280041830')
 REPORT_URL = os.environ.get('REPORT_URL', '')  # 报告URL（GitHub Pages或CloudStudio）
 GROUP_WEBHOOK = os.environ.get('DINGTALK_GROUP_WEBHOOK', '')  # 钉钉群机器人webhook（推群，可选）
+GROUP_WEBHOOK_SITE_DIGITAL = os.environ.get('DINGTALK_GROUP_WEBHOOK_SITE_DIGITAL', '')  # 第二个群：网点数字化
 ROBOT_CODE = APP_KEY  # AppKey即robotCode
 BASE_ID = 'EpGBa2Lm8azv7rn5uEONbq3rWgN7R35y'
 TABLE_ID = '77lhl1x'
@@ -524,7 +525,7 @@ def build_notify_md(today_str, report_url, week_str=''):
     lines = []
     lines.append(f'# 全国网点OKR推进周报{title_suffix}')
     lines.append('')
-    lines.append('本周报告已生成，完整内容（指标 · 进度 · 风险 · 历史周报）请点击下方查看 👇')
+    lines.append('本周报告已生成，完整内容（指标 · 进度 · 重点关注 · 历史周报）请点击下方查看 👇')
     lines.append('')
     if report_url:
         lines.append(f'[📊 查看完整报告]({report_url})')
@@ -2053,15 +2054,23 @@ def main():
         else:
             print(f'   个人发送失败: {json.dumps(result, ensure_ascii=False)}')
 
-        # 8.2 群推送（配置 webhook 时生效）
+        # 8.2 群推送（配置了 webhook 的群都推送）
         print('   8.2 推送到群...')
-        gresult = send_group_message(GROUP_WEBHOOK, msg_title, md)
-        if gresult is None:
-            print('   群推送跳过（未配置 DINGTALK_GROUP_WEBHOOK）')
-        elif gresult.get('errcode') == 0:
-            print(f'   群发送成功！标题：{msg_title}')
-        else:
-            print(f'   群发送失败: {json.dumps(gresult, ensure_ascii=False)}')
+        group_webhooks = [
+            ('DINGTALK_GROUP_WEBHOOK', GROUP_WEBHOOK),
+            ('DINGTALK_GROUP_WEBHOOK_SITE_DIGITAL', GROUP_WEBHOOK_SITE_DIGITAL),
+        ]
+        for gname, gwh in group_webhooks:
+            if not gwh:
+                print(f'   群推送跳过（未配置 {gname}）')
+                continue
+            gresult = send_group_message(gwh, msg_title, md)
+            if gresult is None:
+                print(f'   群推送请求异常（{gname}）')
+            elif gresult.get('errcode') == 0:
+                print(f'   群发送成功！（{gname}）标题：{msg_title}')
+            else:
+                print(f'   群发送失败（{gname}）: {json.dumps(gresult, ensure_ascii=False)}')
 
     print(f'[{datetime.now().isoformat()}] 完成')
 

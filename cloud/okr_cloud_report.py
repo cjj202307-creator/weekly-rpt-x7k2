@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OKR推进进展周报 - 云端版（不依赖本地电脑，可在GitHub Actions/云函数上运行）
+全国网点OKR推进周报 - 云端版（不依赖本地电脑，可在GitHub Actions/云函数上运行）
 直接调用钉钉Open API，不需要dws CLI。
 
 环境变量配置：
@@ -329,23 +329,195 @@ def analyze(krs, today):
         'resp_sorted': resp_sorted,
     }
 
+# ===== 周环比快照机制 =====
+
+SNAPSHOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data', 'snapshots')
+
+def _snapshot_path(today_str=None):
+    """生成本次快照文件路径"""
+    today_str = today_str or date.today().isoformat()
+    return os.path.join(SNAPSHOT_DIR, f'okr-snapshot-{today_str}.json')
+
+def _ensure_snapshot_dir():
+    os.makedirs(SNAPSHOT_DIR, exist_ok=True)
+
+def save_snapshot(a, today_str, week_str):
+    """保存当前数据快照，用于下周环比"""
+    _ensure_snapshot_dir()
+    snapshot = {
+        'week': week_str,
+        'date': today_str,
+        'generated_at': datetime.now().isoformat(),
+        'summary': {
+            'overall_avg': a['overall_avg'],
+            'updated_count': a['updated_count'],
+            'detailed_count': a['detailed_count'],
+            'done_count': a['done_count'],
+            'stale_count': a['stale_count'],
+            'overdue_count': a['overdue_count'],
+            'risk_count': a['risk_count'],
+            'untracked_count': a['untracked_count'],
+        },
+        'o_avgs': a['o_avgs'],
+        'krs': [{
+            'recordId': k['recordId'],
+            'o': k['o'],
+            'kr': k['kr'],
+            'progress': k['progress'],
+            'status': k['status'],
+            'krDesc': k['krDesc'],
+            'deadline': k['deadline'],
+            'blocker': k['blocker'],
+            'followers': k['followers'],
+            'sites': k['sites'],
+        } for k in a['krs']]
+    }
+    path = _snapshot_path(today_str)
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(snapshot, f, ensure_ascii=False, indent=2)
+    return path
+
+def load_previous_snapshot(today_str=None):
+    """加载最近一周的历史快照（排除当天）"""
+    _ensure_snapshot_dir()
+    today = date.fromisoformat(today_str) if today_str else date.today()
+    files = []
+    if os.path.isdir(SNAPSHOT_DIR):
+        for name in os.listdir(SNAPSHOT_DIR):
+            if name.startswith('okr-snapshot-') and name.endswith('.json'):
+                try:
+                    d = date.fromisoformat(name.replace('okr-snapshot-', '').replace('.json', ''))
+                    if d < today:
+                        files.append((d, name))
+                except: pass
+    if not files:
+        return None
+    files.sort(reverse=True)
+    latest_path = os.path.join(SNAPSHOT_DIR, files[0][1])
+    try:
+        with open(latest_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        print(f'读取历史快照失败: {e}', file=sys.stderr)
+        return None
+
+def compare_with_previous(a, prev_snapshot):
+    """计算本周与上周的环比变化"""
+    if not prev_snapshot:
+        return None
+    prev_krs = {k['recordId']: k for k in prev_snapshot.get('krs', [])}
+    curr_krs = {k['recordId']: k for k in a['krs']}
+
+    # 按recordId匹配后的KR
+    common_ids = set(curr_krs.keys()) & set(prev_krs.keys())
+
+    # 进度提升的KR
+    progress_gained = []
+    for rid in common_ids:
+        cur = curr_krs[rid]
+        pre = prev_krs[rid]
+        cur_p = cur.get('progress') if cur.get('progress') is not None else None
+        pre_p = pre.get('progress') if pre.get('progress') is not None else None
+        if cur_p is not None and pre_p is not None and cur_p > pre_p:
+            progress_gained.append({
+                'recordId': rid, 'o': cur['o'], 'kr': cur['kr'],
+                'before': pre_p, 'after': cur_p, 'delta': cur_p - pre_p
+            })
+    progress_gained.sort(key=lambda x: -x['delta'])
+
+    # 描述有更新的KR（新增或变化）
+    def _norm_desc(d):
+        return (d or '').strip()
+    desc_updated = []
+    for rid in common_ids:
+        cur = curr_krs[rid]
+        pre = prev_krs[rid]
+        cur_d = _norm_desc(cur.get('krDesc'))
+        pre_d = _norm_desc(pre.get('krDesc'))
+        if cur_d and cur_d != pre_d and (not pre_d or len(pre_d) < 2):
+            desc_updated.append({
+                'recordId': rid, 'o': cur['o'], 'kr': cur['kr'],
+                'progress': cur.get('progress'), 'is_new': not pre_d or len(pre_d) < 2
+            })
+    desc_updated.sort(key=lambda x: (x['o'], x['kr']))
+
+    # 新增的KR
+    new_krs = [curr_krs[rid] for rid in (set(curr_krs.keys()) - set(prev_krs.keys()))]
+    new_krs.sort(key=lambda x: (x['o'], x['kr']))
+
+    # 消失的KR
+    removed_krs = [prev_krs[rid] for rid in (set(prev_krs.keys()) - set(curr_krs.keys()))]
+    removed_krs.sort(key=lambda x: (x['o'], x['kr']))
+
+    # 真正"本周有进展" = 进度提升 或 新增描述
+    truly_updated = []
+    seen = set()
+    for k in progress_gained:
+        truly_updated.append({'type': 'progress', **k})
+        seen.add(k['recordId'])
+    for k in desc_updated:
+        if k['recordId'] not in seen:
+            truly_updated.append({'type': 'desc', **k})
+            seen.add(k['recordId'])
+    for k in new_krs:
+        if k['recordId'] not in seen:
+            truly_updated.append({'type': 'new', 'recordId': k['recordId'], 'o': k['o'], 'kr': k['kr'], 'progress': k.get('progress')})
+            seen.add(k['recordId'])
+    truly_updated.sort(key=lambda x: (x['o'], x['kr']))
+
+    # 指标变化
+    prev_summary = prev_snapshot.get('summary', {})
+    return {
+        'prev_week': prev_snapshot.get('week', ''),
+        'prev_date': prev_snapshot.get('date', ''),
+        'overall_avg_delta': a['overall_avg'] - prev_summary.get('overall_avg', 0),
+        'done_count_delta': a['done_count'] - prev_summary.get('done_count', 0),
+        'stale_count_delta': a['stale_count'] - prev_summary.get('stale_count', 0),
+        'overdue_count_delta': a['overdue_count'] - prev_summary.get('overdue_count', 0),
+        'updated_count_delta': len(truly_updated) - prev_summary.get('updated_count', 0),
+        'progress_gained': progress_gained,
+        'desc_updated': desc_updated,
+        'new_krs': new_krs,
+        'removed_krs': removed_krs,
+        'truly_updated': truly_updated,
+        'prev_o_avgs': prev_snapshot.get('o_avgs', {}),
+    }
+
 def get_iso_week(d=None):
     """返回ISO周数，如 W30"""
     d = d or date.today()
     iso = d.isocalendar()
     return f'W{iso[1]:02d}'
 
-def generate_markdown(a, today_str, report_url=None, week_str=''):
+def generate_markdown(a, today_str, report_url=None, week_str='', comparison=None):
     """生成Markdown摘要（GM结构化精简版：不照搬描述原文，只列要点，细节看网页）"""
     krs = a['krs']
     lines = []
     title_suffix = f' {week_str}' if week_str else ''
-    lines.append(f'## OKR推进进展周报{title_suffix}')
+    lines.append(f'## 全国网点OKR推进周报{title_suffix}')
     lines.append(f'{today_str}')
     lines.append('')
 
     # 核心数字（一行）
-    lines.append(f'**整体进度 {a["overall_avg"]}%** ｜ **{a["updated_count"]}**项有进展 ｜ **{a["stale_count"]}**项停滞 ｜ **{a["overdue_count"]}**项过期')
+    updated_count_md = len(comparison['truly_updated']) if comparison else a['updated_count']
+    lines.append(f'**整体进度 {a["overall_avg"]}%** ｜ **{updated_count_md}**项本周新进展 ｜ **{a["stale_count"]}**项停滞 ｜ **{a["overdue_count"]}**项超目标日期')
+
+    # 周环比摘要
+    if comparison:
+        prev_week = comparison['prev_week']
+        delta_avg = comparison['overall_avg_delta']
+        delta_done = comparison['done_count_delta']
+        delta_stale = comparison['stale_count_delta']
+        delta_overdue = comparison['overdue_count_delta']
+        lines.append('')
+        lines.append(f'**较上周 {prev_week}：** 平均进度{delta_avg:+d}% ｜ 已达成{delta_done:+d} ｜ 停滞{delta_stale:+d} ｜ 超目标日期{delta_overdue:+d}')
+        if comparison['progress_gained']:
+            top = sorted(comparison['progress_gained'], key=lambda x: -x['delta'])[:2]
+            names = '、'.join([f'{k["kr"]} {k["before"]}%→{k["after"]}%' for k in top])
+            lines.append(f'- 进度提升TOP：{names}')
+    else:
+        lines.append('')
+        lines.append('*（本周为首周基准，下周起显示环比变化）*')
     lines.append('')
 
     # 各O进展概览（按O分组，只列KR名+进度，不搬描述）
@@ -361,7 +533,7 @@ def generate_markdown(a, today_str, report_url=None, week_str=''):
         # 列有进展的KR（最多3条，只写名称+进度）
         for kr in updated_in_o[:3]:
             prog = f'{kr["progress"]}%' if kr['progress'] is not None else '未录入'
-            overdue_mark = ' `[过期]`' if a['is_overdue'](kr) else ''
+            overdue_mark = ' `[超目标日期]`' if a['is_overdue'](kr) else ''
             lines.append(f'- {kr["kr"]} {prog}{overdue_mark}')
         if len(updated_in_o) > 3:
             lines.append(f'- …等{len(updated_in_o)}项')
@@ -377,7 +549,7 @@ def generate_markdown(a, today_str, report_url=None, week_str=''):
         overdue_krs = [k for k in krs if a['is_overdue'](k)]
         names = '、'.join(_short_name(k['kr']) for k in overdue_krs[:3])
         more = f'等{len(overdue_krs)}项' if len(overdue_krs) > 3 else ''
-        risks.append(f'{a["overdue_count"]}项过期未完成：{names}{more}')
+        risks.append(f'{a["overdue_count"]}项超过目标日期未完成：{names}{more}')
     stale_krs = [k for k in krs if a['is_stale'](k)]
     if stale_krs:
         names = '、'.join(_short_name(k['kr']) for k in stale_krs[:2])
@@ -403,30 +575,35 @@ def generate_markdown(a, today_str, report_url=None, week_str=''):
 CSS_TEXT = """
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; background: #f5f6f8; color: #2c3e50; line-height: 1.6; }
-.container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-.header { background: #fff; border-radius: 10px; padding: 28px 32px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
-.header h1 { font-size: 22px; font-weight: 700; color: #1a1a2e; margin-bottom: 6px; }
-.header .meta { font-size: 13px; color: #8898aa; }
-.header .meta span { margin-right: 16px; }
-.header .badge-base { display: inline-block; background: #e3f2fd; color: #1976d2; font-size: 11px; padding: 2px 10px; border-radius: 10px; font-weight: 600; }
-.exec-summary { background: #fff; border-radius: 10px; padding: 24px 32px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); border-left: 4px solid #e74c3c; }
-.exec-summary h2 { font-size: 16px; font-weight: 700; color: #1a1a2e; margin-bottom: 12px; }
+.container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+.header { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); border-radius: 18px; padding: 34px 38px; margin-bottom: 22px; box-shadow: 0 10px 40px rgba(26,26,46,0.2); color: #fff; }
+.header-brand { display: flex; align-items: center; gap: 18px; margin-bottom: 16px; }
+.header-icon { width: 52px; height: 52px; border-radius: 14px; background: linear-gradient(135deg, #3498db 0%, #1a5f9e 100%); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; color: #fff; letter-spacing: 1px; box-shadow: 0 4px 12px rgba(52,152,219,0.35); flex-shrink: 0; }
+.header-titles { flex: 1; min-width: 0; }
+.header h1 { font-size: 26px; font-weight: 800; color: #fff; margin-bottom: 6px; letter-spacing: -0.3px; }
+.header-subtitle { font-size: 14px; color: rgba(255,255,255,0.72); font-weight: 400; }
+.header .meta { font-size: 13px; color: rgba(255,255,255,0.65); display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px; }
+.header .meta span { margin-right: 0; }
+.header .meta-tag { display: inline-block; background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.9); font-size: 11px; padding: 3px 10px; border-radius: 12px; font-weight: 600; border: 1px solid rgba(255,255,255,0.15); }
+.header .badge-base { display: inline-block; background: rgba(52,152,219,0.2); color: #7dd3fc; font-size: 11px; padding: 2px 10px; border-radius: 10px; font-weight: 600; }
+.exec-summary { background: #fff; border-radius: 14px; padding: 26px 34px; margin-bottom: 18px; box-shadow: 0 4px 16px rgba(0,0,0,0.06); border-left: 4px solid #e57373; }
+.exec-summary h2 { font-size: 17px; font-weight: 700; color: #1a1a2e; margin-bottom: 14px; }
 .exec-summary ul { list-style: none; }
 .exec-summary li { font-size: 14px; color: #2c3e50; padding: 6px 0; padding-left: 20px; position: relative; }
-.exec-summary li::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #e74c3c; position: absolute; left: 0; top: 12px; }
-.exec-summary li.warn::before { background: #f39c12; }
+.exec-summary li::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #e57373; position: absolute; left: 0; top: 12px; }
+.exec-summary li.warn::before { background: #f5b041; }
 .exec-summary li.info::before { background: #3498db; }
 .exec-summary strong { color: #1a1a2e; }
 .metrics { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 16px; }
-.metric-card { background: #fff; border-radius: 10px; padding: 18px 16px; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
-.metric-card .num { font-size: 28px; font-weight: 700; margin-bottom: 4px; }
-.metric-card .label { font-size: 11px; color: #8898aa; text-transform: uppercase; letter-spacing: 0.5px; }
-.metric-card.green .num { color: #27ae60; }
-.metric-card.red .num { color: #e74c3c; }
-.metric-card.gray .num { color: #95a5a6; }
-.metric-card.dark .num { color: #2c3e50; }
-.section { background: #fff; border-radius: 10px; padding: 24px 32px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
-.section h2 { font-size: 16px; font-weight: 700; color: #1a1a2e; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 2px solid #f0f0f0; }
+.metric-card { background: #fff; border-radius: 14px; padding: 20px 16px; text-align: center; box-shadow: 0 4px 16px rgba(0,0,0,0.06); border: 1px solid rgba(0,0,0,0.03); }
+.metric-card .num { font-size: 30px; font-weight: 800; margin-bottom: 6px; }
+.metric-card .label { font-size: 11px; color: #8898aa; text-transform: uppercase; letter-spacing: 0.6px; font-weight: 600; }
+.metric-card.green .num { color: #1a5f9e; }
+.metric-card.red .num { color: #e57373; }
+.metric-card.gray .num { color: #aab7b8; }
+.metric-card.dark .num { color: #1a1a2e; }
+.section { background: #fff; border-radius: 14px; padding: 26px 34px; margin-bottom: 18px; box-shadow: 0 4px 16px rgba(0,0,0,0.06); border: 1px solid rgba(0,0,0,0.03); }
+.section h2 { font-size: 17px; font-weight: 700; color: #1a1a2e; margin-bottom: 18px; padding-bottom: 10px; border-bottom: 2px solid #f0f0f0; }
 .o-chart { display: flex; flex-direction: column; gap: 14px; }
 .o-bar-row { display: flex; align-items: center; gap: 12px; }
 .o-bar-label { width: 280px; font-size: 13px; font-weight: 600; color: #2c3e50; flex-shrink: 0; }
@@ -440,6 +617,8 @@ body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; ba
 .filter-btn:hover { border-color: #3498db; color: #3498db; }
 .filter-btn.active { background: #3498db; color: #fff; border-color: #3498db; }
 .filter-btn .count { font-size: 11px; opacity: 0.8; margin-left: 4px; }
+.filter-btn.toggle-all-btn { border-color: #3498db; color: #3498db; margin-left: auto; font-weight: 600; }
+.filter-btn.toggle-all-btn:hover { background: #3498db; color: #fff; }
 .kr-table-wrap { overflow-x: auto; }
 table.kr-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.kr-table th { background: #f8f9fa; color: #8898aa; font-weight: 600; text-align: left; padding: 10px 12px; border-bottom: 2px solid #e8e8e8; cursor: pointer; white-space: nowrap; position: sticky; top: 0; }
@@ -453,29 +632,29 @@ table.kr-table .kr-cell small { color: #8898aa; font-size: 11px; }
 .prog-fill { height: 100%; border-radius: 4px; }
 .prog-text { font-size: 12px; font-weight: 600; vertical-align: middle; }
 .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; white-space: nowrap; }
-.badge-red { background: #ffe0e0; color: #c0392b; }
-.badge-gray { background: #eee; color: #888; }
-.badge-blue { background: #e3f2fd; color: #1976d2; }
-.badge-teal { background: #e0f7fa; color: #00838f; }
+.badge-red { background: #fdecea; color: #d32f2f; }
+.badge-gray { background: #f0f2f5; color: #7f8c8d; }
+.badge-blue { background: #e3f2fd; color: #1a5f9e; }
+.badge-teal { background: #e3f2fd; color: #1a5f9e; }
 .resp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .resp-table th { background: #f8f9fa; color: #8898aa; font-weight: 600; text-align: left; padding: 10px 12px; border-bottom: 2px solid #e8e8e8; }
 .resp-table td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; }
 .resp-table .bar-mini { height: 6px; border-radius: 3px; display: inline-block; width: 60px; vertical-align: middle; margin-right: 6px; }
 .risk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.risk-card { border-radius: 8px; padding: 16px 20px; border-left: 4px solid; }
-.risk-card.high { background: #fff5f5; border-color: #e74c3c; }
-.risk-card.medium { background: #fffaf3; border-color: #f39c12; }
+.risk-card { border-radius: 10px; padding: 16px 20px; border-left: 4px solid; }
+.risk-card.high { background: #fdecea; border-color: #e57373; }
+.risk-card.medium { background: #fff8e1; border-color: #f5b041; }
 .risk-card .risk-title { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
-.risk-card.high .risk-title { color: #c0392b; }
-.risk-card.medium .risk-title { color: #e67e22; }
+.risk-card.high .risk-title { color: #d32f2f; }
+.risk-card.medium .risk-title { color: #f5b041; }
 .risk-card .risk-detail { font-size: 13px; color: #555; margin-bottom: 8px; line-height: 1.8; }
 .risk-card .risk-detail .kr-item { display: block; padding: 2px 0; }
 .risk-card .risk-action { font-size: 12px; color: #777; padding-top: 8px; border-top: 1px dashed #ddd; }
 .risk-card .risk-action strong { color: #333; }
 .dq-list { list-style: none; }
 .dq-list li { font-size: 13px; padding: 8px 0; padding-left: 24px; position: relative; border-bottom: 1px solid #f8f8f8; }
-.dq-list li::before { content: "!"; position: absolute; left: 0; top: 8px; width: 18px; height: 18px; background: #f39c12; color: #fff; border-radius: 50%; text-align: center; line-height: 18px; font-size: 11px; font-weight: 700; }
-.dq-list li.dq-red::before { background: #e74c3c; }
+.dq-list li::before { content: "!"; position: absolute; left: 0; top: 8px; width: 18px; height: 18px; background: #f5b041; color: #fff; border-radius: 50%; text-align: center; line-height: 18px; font-size: 11px; font-weight: 700; }
+.dq-list li.dq-red::before { background: #e57373; }
 .dq-list .dq-items { color: #888; font-size: 12px; margin-top: 4px; line-height: 1.8; }
 .dq-list .dq-items .kr-item { display: block; padding: 1px 0; }
 /* 响应式：小屏幕优化 */
@@ -500,8 +679,8 @@ table.kr-table .kr-cell small { color: #8898aa; font-size: 11px; }
 .blocker-none { color: #ccc; font-style: italic; font-size: 12px; }
 /* 跟进人名字标签 */
 .follower-tags { display: flex; flex-wrap: wrap; gap: 4px; max-width: 200px; }
-.follower-tag { display: inline-block; font-size: 10px; padding: 2px 7px; border-radius: 8px; background: #e0f7fa; color: #006064; white-space: nowrap; cursor: pointer; transition: all 0.2s; }
-.follower-tag:hover { background: #00bcd4; color: #fff; }
+.follower-tag { display: inline-block; font-size: 10px; padding: 2px 7px; border-radius: 8px; background: #e3f2fd; color: #1a5f9e; white-space: nowrap; cursor: pointer; transition: all 0.2s; }
+.follower-tag:hover { background: #3498db; color: #fff; }
 .follower-more { font-size: 10px; color: #888; padding: 2px 4px; }
 /* 可展开行 */
 .kr-row { cursor: pointer; transition: background 0.2s; }
@@ -529,6 +708,13 @@ table.kr-table .kr-cell small { color: #8898aa; font-size: 11px; }
 .o-bar-row:hover .o-bar-detail { display: block; }
 /* KR跟进人一览 */
 .kr-follower-list { display: flex; flex-direction: column; gap: 0; }
+.kr-fol-group { border: 1px solid #eceff3; border-radius: 10px; overflow: hidden; margin-bottom: 10px; }
+.kr-fol-group-header { font-size: 14px; font-weight: 700; color: #1a1a2e; padding: 12px 16px; background: #f8f9fa; border-left: 3px solid #3498db; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: background 0.2s; user-select: none; }
+.kr-fol-group-header:hover { background: #e3f2fd; }
+.kr-fol-group-header .fol-arrow { display: inline-block; font-size: 10px; color: #8898aa; transition: transform 0.2s; }
+.kr-fol-group.expanded .fol-arrow { transform: rotate(90deg); }
+.kr-fol-group-body { display: none; }
+.kr-fol-group.expanded .kr-fol-group-body { display: block; }
 .kr-follower-item { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border-bottom: 1px solid #eee; transition: background 0.2s; }
 .kr-follower-item:last-child { border-bottom: none; }
 .kr-follower-item:hover { background: #f8f9fc; }
@@ -536,9 +722,7 @@ table.kr-table .kr-cell small { color: #8898aa; font-size: 11px; }
 .kr-follower-item .kr-prog { font-size: 13px; font-weight: 700; flex-shrink: 0; min-width: 50px; text-align: right; }
 .kr-follower-item .kr-fol-list { font-size: 11px; color: #888; flex-shrink: 0; max-width: 320px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .kr-follower-item .kr-fol-list .follower-tag { font-size: 10px; }
-.kr-follower-item .o-cell { display: inline-block; background: #e3f2fd; color: #1976d2; font-size: 10px; padding: 1px 6px; border-radius: 8px; font-weight: 700; margin-right: 6px; }
-.kr-fol-group-header { font-size: 14px; font-weight: 700; color: #1a1a2e; padding: 12px 16px 6px; background: #f8f9fa; border-radius: 6px 6px 0 0; margin-top: 8px; border-left: 3px solid #3498db; }
-.kr-fol-group-header:first-child { margin-top: 0; }
+.kr-follower-item .o-cell { display: inline-block; background: #e3f2fd; color: #1a5f9e; font-size: 10px; padding: 1px 6px; border-radius: 8px; font-weight: 700; margin-right: 6px; }
 /* 本周进展亮点（GM核心板块） */
 .o-badge { display: inline-block; background: #1a1a2e; color: #fff; font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 700; margin-right: 8px; }
 .ph-o-header { font-size: 15px; font-weight: 700; color: #1a1a2e; padding: 14px 4px 10px; margin-top: 18px; border-bottom: 2px solid #e8e8e8; display: flex; align-items: center; gap: 4px; }
@@ -550,39 +734,124 @@ table.kr-table .kr-cell small { color: #8898aa; font-size: 11px; }
 .ph-prog { font-size: 18px; font-weight: 700; flex-shrink: 0; }
 .ph-meta { font-size: 12px; color: #8898aa; margin-bottom: 8px; }
 .ph-desc { font-size: 13px; color: #2c3e50; line-height: 1.8; white-space: pre-wrap; word-break: break-word; background: #fff; padding: 10px 14px; border-radius: 6px; border-left: 2px solid #3498db; }
-.ph-blocker { font-size: 12px; color: #c0392b; margin-top: 8px; padding: 8px 12px; background: #fff5f5; border-radius: 4px; }
+.ph-blocker { font-size: 12px; color: #d32f2f; margin-top: 8px; padding: 8px 12px; background: #fdecea; border-radius: 4px; }
 /* 停滞预警 */
 .stale-item { padding: 10px 14px; border-bottom: 1px solid #f0f0f0; }
 .stale-item:last-child { border-bottom: none; }
 .stale-name { font-size: 13px; font-weight: 600; color: #2c3e50; margin-bottom: 4px; }
 .stale-info { font-size: 12px; color: #8898aa; }
-.stale-reason { color: #c0392b; }
+.stale-reason { color: #d32f2f; }
 .empty-state { text-align: center; padding: 30px; color: #95a5a6; font-size: 13px; }
 /* 周数徽章 */
-.week-badge { display: inline-block; background: #1a1a2e; color: #fff; font-size: 13px; padding: 3px 12px; border-radius: 6px; font-weight: 700; margin-left: 10px; vertical-align: middle; }
+.week-badge { display: inline-block; background: linear-gradient(135deg, #3498db 0%, #1a5f9e 100%); color: #fff; font-size: 13px; padding: 4px 14px; border-radius: 8px; font-weight: 800; margin-left: 12px; vertical-align: middle; box-shadow: 0 2px 8px rgba(0,0,0,0.25); letter-spacing: 0.5px; }
 /* 吸顶导航栏 */
 html { scroll-behavior: smooth; }
-.section, .exec-summary, .metrics { scroll-margin-top: 70px; }
-.topnav { position: sticky; top: 0; z-index: 100; background: #fff; border-radius: 10px; padding: 10px 16px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.section, .exec-summary, .metrics { scroll-margin-top: 76px; }
+.topnav { position: sticky; top: 0; z-index: 100; background: rgba(255,255,255,0.96); backdrop-filter: blur(10px); border-radius: 12px; padding: 10px 16px; margin-bottom: 18px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); border: 1px solid rgba(0,0,0,0.04); display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
 .topnav::-webkit-scrollbar { display: none; }
-.topnav a { flex-shrink: 0; padding: 6px 14px; font-size: 13px; color: #555; text-decoration: none; border-radius: 16px; white-space: nowrap; transition: all 0.2s; }
-.topnav a:hover { background: #e3f2fd; color: #1976d2; }
-.topnav a.nav-highlight { background: #1a1a2e; color: #fff; font-weight: 600; }
-.topnav a.nav-highlight:hover { background: #3498db; }
+.topnav a { flex-shrink: 0; padding: 7px 16px; font-size: 13px; color: #4a5568; text-decoration: none; border-radius: 20px; white-space: nowrap; transition: all 0.2s; font-weight: 500; }
+.topnav a:hover { background: #e3f2fd; color: #1a5f9e; }
+.topnav a.nav-highlight { background: linear-gradient(135deg, #1a1a2e 0%, #0f3460 100%); color: #fff; font-weight: 600; box-shadow: 0 2px 6px rgba(26,26,46,0.2); }
+.topnav a.nav-highlight:hover { background: linear-gradient(135deg, #3498db 0%, #1a5f9e 100%); }
 @media (max-width: 768px) {
   .topnav { padding: 8px 10px; }
   .topnav a { padding: 5px 10px; font-size: 12px; }
+}
+/* 指标卡可点击 */
+.metric-card.clickable { cursor: pointer; position: relative; }
+.metric-card.clickable::after { content: "点击查看明细"; display: block; font-size: 10px; color: #b0bec5; margin-top: 4px; letter-spacing: 0; text-transform: none; }
+.metric-card.clickable.active { outline: 2px solid #3498db; box-shadow: 0 4px 14px rgba(52,152,219,0.25); }
+.metric-card.clickable.active::after { content: "点击收起"; color: #3498db; }
+/* 预览提示 */
+.preview-hint { margin-top: 10px; padding: 6px 12px; background: #f0f7ff; border-radius: 6px; font-size: 12px; color: #1a5f9e; }
+/* 卡点标签（折叠态可见） */
+.mdp-blocker-tag { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 8px; background: #fdecea; color: #d32f2f; font-weight: 600; margin-left: 6px; vertical-align: 1px; }
+/* 卡点详情（展开态可见） */
+.mdp-blocker-detail { display: none; margin-top: 6px; padding: 8px 12px; background: #fdecea; border-radius: 6px; font-size: 12px; color: #d32f2f; line-height: 1.6; border-left: 3px solid #e57373; }
+.mdp-kr.expanded .mdp-blocker-detail { display: block; }
+/* 指标详情面板 */
+.metric-detail-panel { display: none; background: #fff; border-radius: 10px; padding: 14px 20px; margin: -4px 0 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-top: 3px solid #3498db; }
+.metric-detail-panel.open { display: block; }
+.mdp-header { font-size: 14px; font-weight: 700; color: #1a1a2e; margin-bottom: 10px; }
+.mdp-kr { border-bottom: 1px solid #f0f2f5; padding: 10px 0; }
+.mdp-kr:last-child { border-bottom: none; }
+.mdp-kr-row { display: flex; align-items: center; gap: 10px; cursor: pointer; flex-wrap: wrap; }
+.mdp-kr-row:hover .mdp-kr-name { color: #3498db; }
+.mdp-arrow { font-size: 10px; color: #8898aa; transition: transform 0.2s; display: inline-block; }
+.mdp-kr.expanded .mdp-arrow { transform: rotate(90deg); }
+.mdp-kr-name { flex: 1; min-width: 180px; font-size: 13px; font-weight: 600; color: #2c3e50; }
+.mdp-kr-prog { font-size: 13px; font-weight: 700; min-width: 52px; text-align: right; }
+.mdp-kr-meta { font-size: 12px; color: #8898aa; }
+.mdp-desc { display: none; margin-top: 8px; padding: 10px 12px; background: #f8f9fa; border-radius: 6px; font-size: 12px; color: #555; line-height: 1.8; white-space: pre-wrap; border-left: 3px solid #3498db; }
+.mdp-kr.expanded .mdp-desc { display: block; }
+.mdp-desc.empty { color: #b0bec5; border-left-color: #ccc; }
+/* 进度分布图 */
+.dist-chart { background: #fff; border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+.dist-title { font-size: 14px; font-weight: 700; color: #1a1a2e; margin-bottom: 12px; }
+.dist-bar { display: flex; height: 34px; border-radius: 8px; overflow: hidden; }
+.dist-seg { display: flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; font-weight: 700; min-width: 0; transition: flex 0.3s; cursor: default; }
+.dist-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; font-size: 12px; color: #666; }
+.dist-legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+/* 周环比 */
+.comparison-banner { display: flex; align-items: center; gap: 12px; padding: 14px 18px; background: linear-gradient(135deg, #f0f7ff 0%, #e3f2fd 100%); border-radius: 12px; margin-bottom: 14px; border: 1px solid rgba(52,152,219,0.12); }
+.comparison-banner.first-week { background: linear-gradient(135deg, #f8f9fa 0%, #eef1f5 100%); border-color: rgba(0,0,0,0.06); }
+.comparison-banner .comp-icon { font-size: 22px; }
+.comparison-banner .comp-title { font-size: 14px; font-weight: 700; color: #1a1a2e; }
+.comparison-banner .comp-sub { font-size: 12px; color: #8898aa; }
+.comparison-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.comp-card { background: #fff; border-radius: 12px; padding: 16px 14px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.04); border: 1px solid rgba(0,0,0,0.03); }
+.comp-card .comp-label { font-size: 11px; color: #8898aa; margin-bottom: 6px; font-weight: 600; }
+.comp-card .comp-cur { font-size: 22px; font-weight: 800; color: #1a1a2e; }
+.comp-card .comp-prev { font-size: 11px; color: #aab7b8; margin-top: 2px; }
+.comp-card .comp-delta { margin-top: 6px; }
+.delta-badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 700; }
+.delta-up { background: #e3f2fd; color: #1a5f9e; }
+.delta-down { background: #fdecea; color: #d32f2f; }
+.delta-neutral { background: #f0f2f5; color: #7f8c8d; }
+/* 图表网格 */
+.chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 18px; }
+.chart-box { background: #fafbfc; border-radius: 12px; padding: 18px; border: 1px solid rgba(0,0,0,0.04); }
+.chart-box.full-width { grid-column: 1 / -1; }
+.chart-title { font-size: 13px; font-weight: 700; color: #1a1a2e; margin-bottom: 14px; }
+/* 环形图 */
+.donut-wrap { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+.donut-chart { width: 140px; height: 140px; flex-shrink: 0; }
+.donut-svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.donut-legend { display: flex; flex-direction: column; gap: 8px; font-size: 12px; color: #555; }
+.donut-legend-item { display: flex; align-items: center; gap: 6px; }
+.donut-legend-item .dot { width: 10px; height: 10px; border-radius: 3px; }
+.donut-seg { cursor: pointer; transition: opacity 0.2s; }
+.donut-seg:hover { opacity: 0.82; }
+/* 各O进度条形图 */
+.o-bar-chart { display: flex; flex-direction: column; gap: 14px; }
+.o-bar-compare-row { display: flex; align-items: center; gap: 12px; }
+.o-bar-compare-label { width: 260px; font-size: 13px; font-weight: 600; color: #2c3e50; flex-shrink: 0; }
+.o-bar-compare-track { flex: 1; height: 28px; background: #f0f0f0; border-radius: 6px; overflow: hidden; position: relative; }
+.o-bar-compare-track .o-prev-bar { position: absolute; top: 0; left: 0; height: 100%; background: #d0d8e0; border-radius: 6px; z-index: 1; }
+.o-bar-compare-fill { position: relative; z-index: 2; height: 100%; background: linear-gradient(90deg, #3498db 0%, #1a5f9e 100%); border-radius: 6px; display: flex; align-items: center; justify-content: flex-end; padding-right: 10px; min-width: 40px; }
+.o-bar-compare-fill span { color: #fff; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.o-bar-delta { font-size: 11px; font-weight: 700; margin-left: 4px; }
+/* 指标面板变化标记 */
+.mdp-delta-up { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 8px; background: #e3f2fd; color: #1a5f9e; font-weight: 700; margin-left: 4px; }
+.mdp-delta-new { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 8px; background: #e8f5e9; color: #1b5e20; font-weight: 700; margin-left: 4px; }
+@media (max-width: 768px) {
+  .mdp-kr-name { min-width: 120px; }
+  .dist-bar { height: 28px; }
+  .dist-seg { font-size: 11px; }
+  .comparison-grid { grid-template-columns: repeat(3, 1fr); }
+  .chart-grid { grid-template-columns: 1fr; }
+  .o-bar-compare-label { width: 180px; }
 }
 """
 
 JS_FUNCS = """
 // 只保留交互增强：筛选、排序、展开明细
 function progColor(p) {
-  if (p === null) return '#ccc';
-  if (p >= 100) return '#1b5e20';
-  if (p >= 70) return '#27ae60';
-  if (p >= 30) return '#f39c12';
-  return '#e74c3c';
+  if (p === null) return '#aab7b8';
+  if (p >= 100) return '#0f3460';
+  if (p >= 70) return '#1a5f9e';
+  if (p >= 30) return '#5dade2';
+  return '#e57373';
 }
 function isPastDueIncomplete(kr) {
   if (!kr.deadline) return false;
@@ -615,7 +884,7 @@ function renderKRTable(filter) {
     if (filter === 'untracked' && !untracked) hidden = true;
     const progBar = kr.progress !== null ? `<div class="prog-bar"><div class="prog-fill" style="width:${kr.progress}%;background:${progColor(kr.progress)}"></div></div><span class="prog-text">${kr.progress}%</span>` : '<span class="badge badge-gray">未录入</span>';
     const statusBadge = kr.status ? `<span class="badge ${kr.status==='未开始'?'badge-red':'badge-blue'}">${kr.status}</span>` : '<span class="badge badge-gray">未标注</span>';
-    const deadlineDisplay = kr.deadline ? new Date(kr.deadline).toLocaleDateString('zh-CN') + (overdue ? ` <span class="badge badge-red">逾期${daysOverdue(kr.deadline)}天</span>` : '') : '<span style="color:#ccc">未设定</span>';
+    const deadlineDisplay = kr.deadline ? new Date(kr.deadline).toLocaleDateString('zh-CN') + (overdue ? ` <span class="badge badge-red">超目标${daysOverdue(kr.deadline)}天</span>` : '') : '<span style="color:#ccc">未设定</span>';
     let folTags;
     if (kr.followers && kr.followers.length > 0) {
       const visible = kr.followers.slice(0, 4).map(n => `<span class="follower-tag">${n}</span>`).join('');
@@ -667,6 +936,45 @@ function toggleDetail(idx) {
     row.classList.remove('expanded');
   }
 }
+function toggleAllDetails() {
+  const btn = document.getElementById('toggleAllBtn');
+  const visibleRows = document.querySelectorAll('#krBody .kr-row:not(.hidden)');
+  const allExpanded = Array.from(visibleRows).every(r => r.classList.contains('expanded'));
+  visibleRows.forEach((row, i) => {
+    const idx = Array.from(document.querySelectorAll('#krBody .kr-row')).indexOf(row);
+    const detail = document.getElementById('detail-' + idx);
+    if (!detail) return;
+    if (allExpanded) {
+      detail.style.display = 'none';
+      row.classList.remove('expanded');
+    } else {
+      detail.style.display = 'table-row';
+      row.classList.add('expanded');
+    }
+  });
+  if (btn) btn.textContent = allExpanded ? '展开全部描述' : '收起全部描述';
+}
+function toggleMetricDetail(key) {
+  const panel = document.getElementById('mdp-' + key);
+  if (!panel) return;
+  const isOpen = panel.classList.contains('open');
+  // 关闭所有面板和卡片激活态
+  document.querySelectorAll('.metric-detail-panel').forEach(p => p.classList.remove('open'));
+  document.querySelectorAll('.metric-card.clickable').forEach(c => c.classList.remove('active'));
+  if (!isOpen) {
+    panel.classList.add('open');
+    const card = document.querySelector('.metric-card[data-metric="' + key + '"]');
+    if (card) card.classList.add('active');
+  }
+}
+function toggleMKR(el) {
+  const kr = el.closest('.mdp-kr');
+  if (kr) kr.classList.toggle('expanded');
+}
+function toggleFolGroup(idx) {
+  const group = document.getElementById('fol-group-' + idx);
+  if (group) group.classList.toggle('expanded');
+}
 function updateFilterCounts() {
   const setTxt = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
   setTxt('c-all', `(${okrData.length})`);
@@ -680,9 +988,12 @@ if (filtersEl) {
   filtersEl.addEventListener('click', e => {
     const btn = e.target.closest('.filter-btn');
     if (!btn) return;
+    if (btn.classList.contains('toggle-all-btn')) return;
     document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     renderKRTable(btn.dataset.filter);
+    const taBtn = document.getElementById('toggleAllBtn');
+    if (taBtn) taBtn.textContent = '展开全部描述';
   });
 }
 let sortDir = {};
@@ -703,6 +1014,8 @@ function sortTable(col) {
   });
   const activeBtn = document.querySelector('.filter-btn.active');
   renderKRTable(activeBtn ? activeBtn.dataset.filter : 'all');
+  const taBtn2 = document.getElementById('toggleAllBtn');
+  if (taBtn2) taBtn2.textContent = '展开全部描述';
 }
 """
 
@@ -713,11 +1026,11 @@ def _esc(text):
     return _html_mod.escape(str(text), quote=False)
 
 def _prog_color(p):
-    if p is None: return '#ccc'
-    if p >= 100: return '#1b5e20'
-    if p >= 70: return '#27ae60'
-    if p >= 30: return '#f39c12'
-    return '#e74c3c'
+    if p is None: return '#aab7b8'
+    if p >= 100: return '#0f3460'
+    if p >= 70: return '#1a5f9e'
+    if p >= 30: return '#5dade2'
+    return '#e57373'
 
 def _gen_o_chart(krs, a):
     """服务端渲染O图"""
@@ -743,10 +1056,10 @@ def _gen_o_chart(krs, a):
         kr_lines = []
         for k in g['krs']:
             p = f'{k["progress"]}%' if k['progress'] is not None else '未追踪'
-            star = ' ⚠️过期' if a['is_overdue'](k) else (' ⚠️' if a['is_risk'](k) else '')
+            star = ' ⚠️超目标日期' if a['is_overdue'](k) else (' ⚠️' if a['is_risk'](k) else '')
             kr_lines.append(f'{k["kr"]} - {p}{star}')
         tip = _html_mod.escape('\n'.join(kr_lines), quote=True)
-        overdue_str = f' / 过期{overdue_count}' if overdue_count > 0 else ''
+        overdue_str = f' / 超目标{overdue_count}' if overdue_count > 0 else ''
         bars.append(f'''<div class="o-bar-row tooltip" data-tip="{tip}">
   <div class="o-bar-label">{o_code} {_esc(g["title"])}<small>{len(g["krs"])}项KR{untracked_str}</small></div>
   <div class="o-bar-track"><div class="o-bar-fill" style="width:{avg}%;background:{color}"><span>{avg}%</span></div></div>
@@ -780,7 +1093,7 @@ def _gen_kr_table(krs, a):
         # 截止日
         if kr['deadline']:
             dl_str = kr['deadline'][:10]
-            overdue_badge = f' <span class="badge badge-red">逾期{a["days_overdue"](kr)}天</span>' if overdue else ''
+            overdue_badge = f' <span class="badge badge-red">超目标{a["days_overdue"](kr)}天</span>' if overdue else ''
             deadline_display = f'{dl_str}{overdue_badge}'
         else:
             deadline_display = '<span style="color:#ccc">未设定</span>'
@@ -836,18 +1149,20 @@ def _gen_kr_table(krs, a):
     return ''.join(rows)
 
 def _gen_kr_followers(krs, a):
-    """服务端渲染各KR跟进人一览"""
+    """服务端渲染各KR跟进人一览（按O分组可折叠）"""
     o_groups = {}
     for kr in krs:
         if kr['o'] not in o_groups:
             o_groups[kr['o']] = {'title': kr['oTitle'], 'krs': []}
         o_groups[kr['o']]['krs'].append(kr)
-    
+
     html_parts = []
+    group_idx = 0
     for o_code in ['O1', 'O2', 'O3', 'O4']:
         g = o_groups.get(o_code)
         if not g: continue
-        html_parts.append(f'<div class="kr-fol-group-header">{o_code} {_esc(g["title"])}（{len(g["krs"])}项KR）</div>')
+        group_idx += 1
+        items_html = []
         for kr in g['krs']:
             color = _prog_color(kr['progress'])
             prog_str = f'{kr["progress"]}%' if kr['progress'] is not None else '未追踪'
@@ -855,12 +1170,18 @@ def _gen_kr_followers(krs, a):
                 fol_names = ''.join([f'<span class="follower-tag">{_esc(n)}</span>' for n in kr['followers']])
             else:
                 fol_names = '<span class="badge badge-red">无跟进人</span>'
-            overdue_tag = f' <span class="badge badge-red">逾期{a["days_overdue"](kr)}天</span>' if a['is_overdue'](kr) else ''
+            overdue_tag = f' <span class="badge badge-red">超目标{a["days_overdue"](kr)}天</span>' if a['is_overdue'](kr) else ''
             risk_tag = f' <span class="badge badge-red">风险</span>' if a['is_risk'](kr) and not a['is_overdue'](kr) else ''
-            html_parts.append(f'''<div class="kr-follower-item">
+            items_html.append(f'''<div class="kr-follower-item">
   <div class="kr-name"><span class="o-cell">{kr["o"]}</span> {_esc(kr["kr"])}{overdue_tag}{risk_tag}</div>
   <div class="kr-prog" style="color:{color}">{prog_str}</div>
   <div class="kr-fol-list">{fol_names}</div>
+</div>''')
+        html_parts.append(f'''<div class="kr-fol-group expanded" id="fol-group-{group_idx}">
+  <div class="kr-fol-group-header" onclick="toggleFolGroup({group_idx})">
+    <span class="fol-arrow">▶</span>{o_code} {_esc(g["title"])}（{len(g["krs"])}项KR）
+  </div>
+  <div class="kr-fol-group-body">{''.join(items_html)}</div>
 </div>''')
     return ''.join(html_parts)
 
@@ -910,7 +1231,7 @@ def _gen_progress_highlights(krs, a):
             prog_color = _prog_color(prog)
             followers = '、'.join(kr['followers'][:3]) if kr['followers'] else '—'
             more_fol = f' 等{len(kr["followers"])}人' if len(kr['followers']) > 3 else ''
-            overdue_tag = f'<span class="badge badge-red">逾期{a["days_overdue"](kr)}天</span>' if a['is_overdue'](kr) else ''
+            overdue_tag = f'<span class="badge badge-red">超目标{a["days_overdue"](kr)}天</span>' if a['is_overdue'](kr) else ''
             blocker_html = f'<div class="ph-blocker"><strong>卡点：</strong>{_esc(kr["blocker"][:120])}</div>' if kr.get('blocker') else ''
             parts.append(f'''<div class="ph-card">
   <div class="ph-head">
@@ -942,16 +1263,263 @@ def _gen_stale_list(krs, a):
         if kr['status'] == '未开始':
             reason.append('未开始')
         reason_str = ' · '.join(reason) if reason else '—'
-        overdue_tag = f'<span class="badge badge-red">逾期{a["days_overdue"](kr)}天</span>' if a['is_overdue'](kr) else ''
+        overdue_tag = f'<span class="badge badge-red">超目标{a["days_overdue"](kr)}天</span>' if a['is_overdue'](kr) else ''
         parts.append(f'''<div class="stale-item">
   <div class="stale-name"><span class="o-badge">{kr["o"]}</span>{_esc(kr["kr"])} {overdue_tag}</div>
   <div class="stale-info"><span style="color:{prog_color};font-weight:700">{prog_str}</span> · {_esc(followers)} · <span class="stale-reason">{reason_str}</span></div>
 </div>''')
     return ''.join(parts)
 
-def generate_html(a, today_str, week_str=''):
+def _mdp_kr_row(kr, a, extra_meta=''):
+    """指标详情面板中的单条KR（点击展开关键结果描述）"""
+    prog = kr['progress']
+    prog_str = f'{prog}%' if prog is not None else '未录入'
+    prog_color = _prog_color(prog)
+    followers = '、'.join(kr['followers'][:3]) if kr['followers'] else '—'
+    more_fol = f'等{len(kr["followers"])}人' if len(kr['followers']) > 3 else ''
+    if a['is_overdue'](kr):
+        meta_extra = f'超过目标日期{a["days_overdue"](kr)}天'
+    elif kr['deadline']:
+        meta_extra = f'目标{kr["deadline"][:10]}'
+    else:
+        meta_extra = '未设目标日期'
+    # 网点信息
+    sites_str = f' · {_esc(kr["sites"])}' if kr['sites'] and kr['sites'] != '—' else ''
+    # 卡点指示器
+    blocker_tag = ' <span class="mdp-blocker-tag">有卡点</span>' if kr.get('blocker') else ''
+    if extra_meta:
+        meta_extra = f'{meta_extra} · {extra_meta}'
+    desc = (kr.get('krDesc') or '').strip()
+    if desc and desc not in ('无', '暂无', '-', '—', 'n/a', 'N/A'):
+        desc_html = _esc(desc)
+        desc_cls = ''
+    else:
+        desc_html = '暂无进展描述'
+        desc_cls = 'empty'
+    # 卡点详情（展开时可见）
+    blocker_detail = f'<div class="mdp-blocker-detail"><strong>卡点：</strong>{_esc(kr["blocker"][:150])}</div>' if kr.get('blocker') else ''
+    return f'''<div class="mdp-kr">
+  <div class="mdp-kr-row" onclick="toggleMKR(this)">
+    <span class="mdp-arrow">▶</span>
+    <span class="o-badge">{kr["o"]}</span>
+    <span class="mdp-kr-name">{_esc(kr["kr"])}{blocker_tag}</span>
+    <span class="mdp-kr-prog" style="color:{prog_color}">{prog_str}</span>
+    <span class="mdp-kr-meta">{_esc(followers)}{more_fol}{sites_str} · {_esc(meta_extra)}</span>
+  </div>
+  <div class="mdp-desc {desc_cls}">{desc_html}</div>
+  {blocker_detail}
+</div>'''
+
+def _mdp_updated_row(k, a, comp_type=''):
+    """指标面板中'本周有进展'的KR行（支持周环比标记）"""
+    type_tag = ''
+    if comp_type == 'progress':
+        type_tag = ' <span class="mdp-delta-up">↗ 进度提升</span>'
+    elif comp_type == 'desc':
+        type_tag = ' <span class="mdp-delta-new">✎ 新增描述</span>'
+    elif comp_type == 'new':
+        type_tag = ' <span class="mdp-delta-new">NEW 新增KR</span>'
+    return _mdp_kr_row(k, a, extra_meta=type_tag)
+
+def _gen_metric_panels(krs, a, comparison=None):
+    """服务端渲染6个指标详情面板（默认隐藏，点击指标卡展开）"""
+    panels = {}
+    # 1. 平均进度 → 各O分解
+    o_rows = []
+    for o_code in ['O1', 'O2', 'O3', 'O4']:
+        g = a['o_groups'].get(o_code)
+        if not g: continue
+        avg = a['o_avgs'].get(o_code, 0)
+        color = _prog_color(avg)
+        prev_avg = comparison['prev_o_avgs'].get(o_code) if comparison else None
+        delta_str = f' <span style="color:#1a5f9e;font-size:12px">({prev_avg}%→{avg}%)</span>' if prev_avg is not None else ''
+        klist = '、'.join([k['kr'][:16] for k in g['krs'][:3]])
+        more = f'等{len(g["krs"])}项' if len(g['krs']) > 3 else ''
+        o_rows.append(f'''<div class="mdp-kr">
+  <div class="mdp-kr-row" style="cursor:default">
+    <span class="o-badge">{o_code}</span>
+    <span class="mdp-kr-name">{_esc(g["title"])}</span>
+    <span class="mdp-kr-prog" style="color:{color}">{avg}%{delta_str}</span>
+    <span class="mdp-kr-meta">{len(g['krs'])}项KR：{_esc(klist)}{more}</span>
+  </div>
+</div>''')
+    panels['avg'] = f'<div class="mdp-header">各目标进度分解（整体平均为各O均值）</div>' + ''.join(o_rows)
+
+    # 2. 本周有进展：有历史快照时显示"真正本周新增进展"，否则显示所有有描述的KR
+    if comparison:
+        updated_list = comparison['truly_updated']
+        updated_krs = []
+        for item in updated_list:
+            for k in krs:
+                if k['recordId'] == item['recordId']:
+                    updated_krs.append((k, item['type']))
+                    break
+        updated_title = f'本周新增进展的KR（较上周{comparison["prev_week"]}）'
+    else:
+        updated_krs = [(k, '') for k in krs if a['has_update'](k)]
+        updated_title = '本周有实质进展的KR（首周基准：所有有描述更新的KR）'
+
+    # 3-6. 其他KR列表类指标
+    kr_groups = {
+        'updated': (updated_title, updated_krs),
+        'done': ('已达成的KR', [(k, '') for k in krs if k['progress'] == 100]),
+        'overdue': ('超过目标日期未完成的KR', [(k, '') for k in krs if a['is_overdue'](k)]),
+        'stale': ('停滞KR（无进展描述或进度为0）', [(k, '') for k in krs if a['is_stale'](k)]),
+        'untracked': ('未录入进度的KR', [(k, '') for k in krs if k['progress'] is None]),
+    }
+    for key, (title, klist) in kr_groups.items():
+        if not klist:
+            panels[key] = f'<div class="mdp-header">{title}</div><div class="empty-state">无</div>'
+        else:
+            rows = ''.join([_mdp_updated_row(k, a, t) if key == 'updated' else _mdp_kr_row(k, a) for k, t in klist])
+            panels[key] = f'<div class="mdp-header">{title}（{len(klist)}项）</div>' + rows
+    return panels
+
+def _gen_dist_chart(krs):
+    """KR进度分布图（分段堆叠条形图）"""
+    buckets = [
+        ('0%', '#e57373', [k for k in krs if k['progress'] == 0]),
+        ('1-30%', '#5dade2', [k for k in krs if k['progress'] is not None and 0 < k['progress'] <= 30]),
+        ('31-70%', '#3498db', [k for k in krs if k['progress'] is not None and 30 < k['progress'] <= 70]),
+        ('71-99%', '#1a5f9e', [k for k in krs if k['progress'] is not None and 70 < k['progress'] < 100]),
+        ('100%', '#0f3460', [k for k in krs if k['progress'] == 100]),
+        ('未追踪', '#aab7b8', [k for k in krs if k['progress'] is None]),
+    ]
+    total = len(krs) or 1
+    segs = []
+    legend = []
+    for label, color, items in buckets:
+        n = len(items)
+        if n == 0: continue
+        pct = n / total * 100
+        # 原生title（最可靠，钉钉内置浏览器也支持）+ CSS tooltip增强
+        title_lines = [f'{label}：{n}项（{pct:.1f}%）'] + [k['kr'] for k in items[:10]]
+        if len(items) > 10:
+            title_lines.append(f'...等共{len(items)}项')
+        title_text = '\n'.join(title_lines)
+        title_attr = _esc(title_text).replace('"', '&quot;')
+        # data-tip用于CSS tooltip（桌面浏览器），属性值中保留真实换行符
+        data_tip = '\n'.join(title_lines)
+        segs.append(f'<div class="dist-seg tooltip" title="{title_attr}" data-tip="{data_tip}" style="flex:{n};background:{color}">{n}</div>')
+        legend.append(f'<span><span class="dot" style="background:{color}"></span>{label}（{n}项）</span>')
+    return f'''<div class="dist-title">KR进度分布（共{len(krs)}项 · 悬停分段查看明细）</div>
+<div class="dist-bar">{''.join(segs)}</div>
+<div class="dist-legend">{''.join(legend)}</div>'''
+
+def _delta_badge(delta, suffix='', reverse=False):
+    """生成变化徽章（reverse=True时负数为好事，如逾期数下降）"""
+    if delta is None:
+        return '<span class="delta-badge delta-neutral">—</span>'
+    if delta == 0:
+        return '<span class="delta-badge delta-neutral">→ 持平</span>'
+    good = (delta > 0) if not reverse else (delta < 0)
+    cls = 'delta-up' if good else 'delta-down'
+    sign = '+' if delta > 0 else ''
+    return f'<span class="delta-badge {cls}">{sign}{delta}{suffix}</span>'
+
+def _gen_comparison_html(a, comparison):
+    """周环比指标卡（首周显示无对比提示）"""
+    if not comparison:
+        return '''<div class="comparison-banner first-week">
+  <div class="comp-icon">📊</div>
+  <div class="comp-text">
+    <div class="comp-title">首周基准数据</div>
+    <div class="comp-sub">下周自动生成后将显示与本周的环比变化</div>
+  </div>
+</div>'''
+    prev_week = comparison['prev_week']
+    cards = [
+        ('平均进度', f'{a["overall_avg"]}%', f'{comparison.get("prev_o_avgs", {}).get("overall", a["overall_avg"] - comparison["overall_avg_delta"])}%', _delta_badge(comparison['overall_avg_delta'], '%')),
+        ('本周新进展', len(comparison['truly_updated']), '上周', _delta_badge(comparison['updated_count_delta'], '项')),
+        ('已达成', a['done_count'], comparison.get('prev_summary', {}).get('done_count', a['done_count']), _delta_badge(comparison['done_count_delta'], '项')),
+        ('停滞项', a['stale_count'], comparison.get('prev_summary', {}).get('stale_count', a['stale_count']), _delta_badge(comparison['stale_count_delta'], '项', reverse=True)),
+        ('超目标日期', a['overdue_count'], comparison.get('prev_summary', {}).get('overdue_count', a['overdue_count']), _delta_badge(comparison['overdue_count_delta'], '项', reverse=True)),
+    ]
+    # 修正prev值显示
+    prev_summary = comparison.get('prev_summary', {})
+    cards = [
+        ('平均进度', f'{a["overall_avg"]}%', f'{a["overall_avg"] - comparison["overall_avg_delta"]}%', _delta_badge(comparison['overall_avg_delta'], '%')),
+        ('本周新进展', len(comparison['truly_updated']), prev_summary.get('updated_count', 0), _delta_badge(len(comparison['truly_updated']) - prev_summary.get('updated_count', 0), '项')),
+        ('已达成', a['done_count'], prev_summary.get('done_count', 0), _delta_badge(comparison['done_count_delta'], '项')),
+        ('停滞项', a['stale_count'], prev_summary.get('stale_count', 0), _delta_badge(comparison['stale_count_delta'], '项', reverse=True)),
+        ('超目标日期', a['overdue_count'], prev_summary.get('overdue_count', 0), _delta_badge(comparison['overdue_count_delta'], '项', reverse=True)),
+    ]
+    html = f'<div class="comparison-banner"><div class="comp-text"><div class="comp-title">较上周 {prev_week} 环比变化</div></div></div><div class="comparison-grid">'
+    for label, cur, prev, delta in cards:
+        html += f'''<div class="comp-card">
+  <div class="comp-label">{label}</div>
+  <div class="comp-cur">{cur}</div>
+  <div class="comp-prev">上周 {prev}</div>
+  <div class="comp-delta">{delta}</div>
+</div>'''
+    html += '</div>'
+    return html
+
+def _gen_status_donut(krs, a):
+    """状态分布环形图（SVG），悬停显示该分类下的KR明细"""
+    # 非重叠分类（互斥）
+    categories = [
+        ('已达成', [k for k in krs if k['progress'] == 100], '#0f3460'),
+        ('推进中', [k for k in krs if k['progress'] is not None and 0 < k['progress'] < 100], '#3498db'),
+        ('未开始', [k for k in krs if k['progress'] == 0], '#5dade2'),
+        ('未追踪', [k for k in krs if k['progress'] is None], '#aab7b8'),
+    ]
+    total = len(krs) or 1
+
+    radius = 60
+    cx, cy = 70, 70
+    stroke = 18
+    circ = 2 * 3.1416 * radius
+    offset = 0
+    segments = []
+    legend = []
+    for label, items, color in categories:
+        n = len(items)
+        if n == 0: continue
+        pct = n / total
+        dash = pct * circ
+        # 悬停明细：分类名+数量+占比+最多10条KR名
+        title_lines = [f'{label}：{n}项（{pct*100:.0f}%）']
+        for k in items[:10]:
+            p = f'{k["progress"]}%' if k['progress'] is not None else '未追踪'
+            title_lines.append(f'• {k["kr"]} - {p}')
+        if len(items) > 10:
+            title_lines.append(f'...等共{len(items)}项')
+        title_text = _esc('\n'.join(title_lines)).replace('"', '&quot;')
+        title_svg = f'<title>{title_text}</title>'
+        segments.append(f'<circle cx="{cx}" cy="{cy}" r="{radius}" fill="none" stroke="{color}" stroke-width="{stroke}" stroke-dasharray="{dash:.2f} {circ - dash:.2f}" stroke-dashoffset="{-offset:.2f}" class="donut-seg">{title_svg}</circle>')
+        offset += dash
+        legend.append(f'<span class="donut-legend-item"><span class="dot" style="background:{color}"></span>{label} {n}项（{pct*100:.0f}%）</span>')
+    if not segments:
+        segments.append(f'<circle cx="{cx}" cy="{cy}" r="{radius}" fill="none" stroke="#eef" stroke-width="{stroke}" />')
+    inner_text = f'<g transform="rotate(90, {cx}, {cy})"><text x="{cx}" y="{cy-4}" text-anchor="middle" font-size="14" font-weight="700" fill="#1a1a2e">{total}</text><text x="{cx}" y="{cy+12}" text-anchor="middle" font-size="10" fill="#8898aa">项KR</text></g>'
+    svg = f'<svg class="donut-svg" viewBox="0 0 140 140">{ "".join(segments) }{inner_text}</svg>'
+    return f'<div class="donut-wrap"><div class="donut-chart">{svg}</div><div class="donut-legend">{"".join(legend)}</div></div>'
+
+def _gen_o_bar_chart(a, comparison):
+    """各O进度横向条形图（带上周对比）"""
+    bars = []
+    max_val = 100
+    for o_code in ['O1', 'O2', 'O3', 'O4']:
+        title = a['o_groups'].get(o_code, {}).get('title', '')
+        avg = a['o_avgs'].get(o_code, 0)
+        prev_avg = comparison['prev_o_avgs'].get(o_code) if comparison else None
+        prev_bar = f'<div class="o-prev-bar" style="width:{prev_avg}%"></div>' if prev_avg is not None else ''
+        delta = f' <span class="o-bar-delta">{avg - prev_avg:+.0f}%</span>' if prev_avg is not None else ''
+        bars.append(f'''<div class="o-bar-compare-row">
+  <div class="o-bar-compare-label"><span class="o-badge">{o_code}</span>{_esc(title)}</div>
+  <div class="o-bar-compare-track">
+    {prev_bar}
+    <div class="o-bar-compare-fill" style="width:{avg}%"><span>{avg}%{delta}</span></div>
+  </div>
+</div>''')
+    return ''.join(bars)
+
+def generate_html(a, today_str, week_str='', comparison=None):
     """生成GM视角HTML报告（本周进展亮点置顶，服务端渲染+JS增强交互）"""
     krs = a['krs']
+    # 有历史快照时，"本周有进展"显示真正新增进展数；首周显示所有有描述的KR数
+    updated_count_display = len(comparison['truly_updated']) if comparison else a['updated_count']
 
     # JS数据数组
     js_krs = json.dumps([{
@@ -976,9 +1544,9 @@ def generate_html(a, today_str, week_str=''):
         detail_items = ''.join([f'<span class="kr-item">{k["kr"]}({k["progress"] if k["progress"] is not None else "未追踪"}%)</span>' for k in overdue_krs[:5]])
         risk_cards.append({
             'level': 'high',
-            'title': f'{a["overdue_count"]}项KR已过截止日期但未完成',
+            'title': f'{a["overdue_count"]}项KR已超过目标日期但未完成',
             'detail': detail_items,
-            'action': '建议了解各项过期KR的推进计划和时间安排，评估目标是否需要调整'
+            'action': '建议了解各项超过目标日期KR的推进计划和时间安排，评估目标是否需要调整'
         })
     for kr in krs:
         if kr['progress'] == 0 and kr['status'] == '未开始':
@@ -1000,7 +1568,7 @@ def generate_html(a, today_str, week_str=''):
         if kr['progress'] is not None and 0 < kr['progress'] <= 30:
             risk_cards.append({
                 'level': 'medium',
-                'title': f'{kr["kr"]} {kr["progress"]}%{"（已过期）" if a["is_overdue"](kr) else ""}',
+                'title': f'{kr["kr"]} {kr["progress"]}%{"（超过目标日期）" if a["is_overdue"](kr) else ""}',
                 'detail': f'卡点：{kr["blocker"] or "未记录"}',
                 'action': '建议了解当前的资源配置和推进计划'
             })
@@ -1018,7 +1586,7 @@ def generate_html(a, today_str, week_str=''):
     if a['overdue_count'] > 0:
         overdue = [k['kr'] for k in krs if a['is_overdue'](k)]
         items_html = ''.join([f'<span class="kr-item">{name}</span>' for name in overdue])
-        dq_items.append({'red': True, 'title': f'{a["overdue_count"]}项KR已过截止日期但未完成', 'items': items_html})
+        dq_items.append({'red': True, 'title': f'{a["overdue_count"]}项KR已超过目标日期但未完成', 'items': items_html})
 
     # 指标卡tooltip
     import html as _html
@@ -1030,9 +1598,11 @@ def generate_html(a, today_str, week_str=''):
     tip_untracked = _html.escape('\n'.join([k['kr'] for k in krs if k['progress'] is None]) or '无')
 
     # 服务端渲染各板块
-    progress_highlights_html = _gen_progress_highlights(krs, a)
-    stale_list_html = _gen_stale_list(krs, a)
-    o_chart_html = _gen_o_chart(krs, a)
+    dist_chart_html = _gen_dist_chart(krs)
+    comparison_html = _gen_comparison_html(a, comparison)
+    status_donut_html = _gen_status_donut(krs, a)
+    o_bar_chart_html = _gen_o_bar_chart(a, comparison)
+    metric_panels = _gen_metric_panels(krs, a, comparison=comparison)
     kr_table_html = _gen_kr_table(krs, a)
     kr_follower_html = _gen_kr_followers(krs, a)
     risk_cards_html = _gen_risk_cards_html(risk_cards[:6])
@@ -1052,7 +1622,7 @@ def generate_html(a, today_str, week_str=''):
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OKR推进进展周报{title_week} - {today_str}</title>
+<title>全国网点OKR推进周报{title_week} - {today_str}</title>
 <style>
 {CSS_TEXT}
 </style>
@@ -1061,69 +1631,90 @@ def generate_html(a, today_str, week_str=''):
 <div class="container">
 
 <div class="header">
-  <h1>OKR推进进展周报{week_badge}</h1>
+  <div class="header-brand">
+    <div class="header-icon">OKR</div>
+    <div class="header-titles">
+      <h1>全国网点OKR推进周报{week_badge}</h1>
+      <div class="header-subtitle">集团四大战略目标执行进度 · 网点协同推进情况</div>
+    </div>
+  </div>
   <div class="meta">
     <span>日期：{today_str}</span>
-    <span>面向：总经理 / 部门经理</span>
     <span>数据来源：协同待办事项表 · 网点OKR推进</span>
+    <span class="meta-tag">云端自动生成</span>
   </div>
 </div>
 
 <nav class="topnav">
   <a href="#sec-summary" class="nav-highlight">本周概况</a>
-  <a href="#sec-highlights" class="nav-highlight">进展亮点</a>
-  <a href="#sec-stale" class="nav-highlight">停滞预警</a>
-  <a href="#sec-metrics">指标</a>
-  <a href="#sec-ochart">各O进度</a>
-  <a href="#sec-risk">风险关注</a>
-  <a href="#sec-detail">KR明细</a>
-  <a href="#sec-followers">跟进人</a>
-  <a href="#sec-dq">数据质量</a>
+  <a href="#sec-metrics" class="nav-highlight">指标</a>
+  <a href="#sec-compare" class="nav-highlight">周环比</a>
+  <a href="#sec-ochart" class="nav-highlight">进度可视化</a>
+  <a href="#sec-risk" class="nav-highlight">风险关注</a>
+  <a href="#sec-detail" class="nav-highlight">KR明细</a>
+  <a href="#sec-followers" class="nav-highlight">跟进人</a>
+  <a href="#sec-dq" class="nav-highlight">数据质量</a>
 </nav>
 
 <div class="exec-summary" id="sec-summary">
   <h2>本周概况</h2>
   <ul>
-    <li>整体平均进度 <strong>{a["overall_avg"]}%</strong>，本周 <strong>{a["updated_count"]}项KR有实质进展更新</strong>（其中{a["detailed_count"]}项描述详细）</li>
-    <li class="{'warn' if a["overdue_count"] > 0 else 'info'}">{'<strong>' + str(a["overdue_count"]) + '项KR已过截止日期但未完成</strong>' if a["overdue_count"] > 0 else '无过期未完成KR'}</li>
-    <li class="{'warn' if a["stale_count"] > 0 else ''}">{a["stale_count"]}项KR本周无进展更新或进度为0</li>
+    <li class="info">整体平均进度 <strong>{a["overall_avg"]}%</strong>，共 <strong>{len(krs)}项KR</strong>，其中 <strong>{updated_count_display}项</strong>本周有进展更新，<strong>{a["done_count"]}项</strong>已达成{'' if not comparison else '（较上周' + comparison['prev_week'] + '新增' + str(len(comparison['truly_updated'])) + '项）'}</li>
+    <li class="{'warn' if a["overdue_count"] > 0 else ''}">{'<strong>' + str(a["overdue_count"]) + '项KR已超过目标日期但未完成</strong>，需了解推进计划' if a["overdue_count"] > 0 else '无超过目标日期未完成KR'}</li>
+    <li class="{'warn' if a["stale_count"] > 0 else ''}">{'<strong>' + str(a["stale_count"]) + '项KR本周停滞</strong>（无进展描述或进度为0）' if a["stale_count"] > 0 else '全部KR本周均有进展'}</li>
   </ul>
-</div>
-
-<div class="section" id="sec-highlights">
-  <h2>本周进展亮点 <small style="font-weight:400;color:#8898aa;font-size:12px;margin-left:8px">跟进人更新的最新成果（按目标分组，详细度优先）</small></h2>
-  <div id="progressHighlights">{progress_highlights_html}</div>
-</div>
-
-<div class="section" id="sec-stale">
-  <h2>停滞预警 <small style="font-weight:400;color:#8898aa;font-size:12px;margin-left:8px">本周无进展描述或进度为0的KR</small></h2>
-  <div id="staleList">{stale_list_html}</div>
+  <div class="preview-hint">点击下方指标卡可展开对应KR明细 · 点击KR行可查看进展描述全文</div>
 </div>
 
 <div class="metrics" id="sec-metrics">
-  <div class="metric-card dark tooltip" data-tip="整体平均进度（各O均值）">
+  <div class="metric-card dark clickable" data-metric="avg" onclick="toggleMetricDetail('avg')">
     <div class="num">{a["overall_avg"]}%</div><div class="label">平均进度</div>
   </div>
-  <div class="metric-card green tooltip" data-tip="{tip_updated}">
-    <div class="num">{a["updated_count"]}</div><div class="label">本周有进展</div>
+  <div class="metric-card green clickable" data-metric="updated" onclick="toggleMetricDetail('updated')">
+    <div class="num">{updated_count_display}</div><div class="label">本周有进展</div>
   </div>
-  <div class="metric-card green tooltip" data-tip="{tip_done}">
+  <div class="metric-card green clickable" data-metric="done" onclick="toggleMetricDetail('done')">
     <div class="num">{a["done_count"]}</div><div class="label">已达成</div>
   </div>
-  <div class="metric-card red tooltip" data-tip="{tip_overdue}">
-    <div class="num">{a["overdue_count"]}</div><div class="label">已过期</div>
+  <div class="metric-card red clickable" data-metric="overdue" onclick="toggleMetricDetail('overdue')">
+    <div class="num">{a["overdue_count"]}</div><div class="label">超过目标日期</div>
   </div>
-  <div class="metric-card red tooltip" data-tip="{tip_stale}">
+  <div class="metric-card red clickable" data-metric="stale" onclick="toggleMetricDetail('stale')">
     <div class="num">{a["stale_count"]}</div><div class="label">停滞项</div>
   </div>
-  <div class="metric-card gray tooltip" data-tip="{tip_untracked}">
+  <div class="metric-card gray clickable" data-metric="untracked" onclick="toggleMetricDetail('untracked')">
     <div class="num">{a["untracked_count"]}</div><div class="label">未追踪</div>
   </div>
 </div>
 
+<div class="metric-detail-panel" id="mdp-avg">{metric_panels["avg"]}</div>
+<div class="metric-detail-panel" id="mdp-updated">{metric_panels["updated"]}</div>
+<div class="metric-detail-panel" id="mdp-done">{metric_panels["done"]}</div>
+<div class="metric-detail-panel" id="mdp-overdue">{metric_panels["overdue"]}</div>
+<div class="metric-detail-panel" id="mdp-stale">{metric_panels["stale"]}</div>
+<div class="metric-detail-panel" id="mdp-untracked">{metric_panels["untracked"]}</div>
+
+<div class="section" id="sec-compare">
+  <h2>周环比变化</h2>
+  {comparison_html}
+</div>
+
 <div class="section" id="sec-ochart">
-  <h2>各目标平均进度</h2>
-  <div class="o-chart" id="oChart">{o_chart_html}</div>
+  <h2>进度可视化</h2>
+  <div class="chart-grid">
+    <div class="chart-box">
+      <div class="chart-title">KR进度分布</div>
+      <div class="dist-chart">{dist_chart_html}</div>
+    </div>
+    <div class="chart-box">
+      <div class="chart-title">状态分布</div>
+      {status_donut_html}
+    </div>
+  </div>
+  <div class="chart-box full-width">
+    <div class="chart-title">各目标进度{'' if not comparison else '（本周 vs 上周' + comparison['prev_week'] + '，浅条为上周）'}</div>
+    <div class="o-bar-chart">{o_bar_chart_html}</div>
+  </div>
 </div>
 
 <div class="section" id="sec-risk">
@@ -1136,9 +1727,10 @@ def generate_html(a, today_str, week_str=''):
   <div class="filters" id="filters">
     <button class="filter-btn active" data-filter="all">全部 <span class="count" id="c-all">({c_all})</span></button>
     <button class="filter-btn" data-filter="risk">风险项 <span class="count" id="c-risk">({c_risk})</span></button>
-    <button class="filter-btn" data-filter="overdue">已过期 <span class="count" id="c-overdue">({c_overdue})</span></button>
+    <button class="filter-btn" data-filter="overdue">超过目标日期 <span class="count" id="c-overdue">({c_overdue})</span></button>
     <button class="filter-btn" data-filter="done">已达成 <span class="count" id="c-done">({c_done})</span></button>
     <button class="filter-btn" data-filter="untracked">未追踪 <span class="count" id="c-untracked">({c_untracked})</span></button>
+    <button class="filter-btn toggle-all-btn" id="toggleAllBtn" onclick="toggleAllDetails()">展开全部描述</button>
   </div>
   <div class="kr-table-wrap">
     <table class="kr-table" id="krTable">
@@ -1238,11 +1830,20 @@ def main():
     print('4. 解析和分析数据...')
     krs = parse_records(records)
     a = analyze(krs, today)
-    print(f'   有效KR: {len(krs)}, 平均进度: {a["overall_avg"]}%, 本周有进展: {a["updated_count"]}, 停滞: {a["stale_count"]}, 过期: {a["overdue_count"]}')
+    print(f'   有效KR: {len(krs)}, 平均进度: {a["overall_avg"]}%, 本周有进展: {a["updated_count"]}, 停滞: {a["stale_count"]}, 超目标日期: {a["overdue_count"]}')
+
+    # 4.5 读取上周快照并计算环比
+    print('4.5. 计算周环比...')
+    prev_snapshot = load_previous_snapshot(today_str)
+    comparison = compare_with_previous(a, prev_snapshot)
+    if comparison:
+        print(f'   对比上周 {comparison["prev_week"]}({comparison["prev_date"]})：平均进度Δ{comparison["overall_avg_delta"]:+d}%，{len(comparison["truly_updated"])}项新进展，{len(comparison["progress_gained"])}项进度提升')
+    else:
+        print('   无历史快照，本周为首周基准')
 
     # 5. 生成HTML报告
     print('5. 生成HTML报告...')
-    html = generate_html(a, today_str, week_str)
+    html = generate_html(a, today_str, week_str, comparison=comparison)
     html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'okr-report.html')
     with open(html_path, 'w', encoding='utf-8') as f:
         f.write(html)
@@ -1253,14 +1854,19 @@ def main():
         print(f'   提示：部署 {html_path} 到网络托管后，设置REPORT_URL重跑即可发送')
         return
 
+    # 5.5 保存本次快照（用于下周环比）
+    print('5.5. 保存数据快照...')
+    snapshot_path = save_snapshot(a, today_str, week_str)
+    print(f'   快照已保存: {snapshot_path}')
+
     # 6. 生成Markdown摘要（含报告链接）
     print('6. 生成Markdown摘要...')
-    md = generate_markdown(a, today_str, report_url=REPORT_URL, week_str=week_str)
+    md = generate_markdown(a, today_str, report_url=REPORT_URL, week_str=week_str, comparison=comparison)
     print(f'   报告URL: {REPORT_URL}')
 
     # 7. 发送机器人消息
     print('7. 发送钉钉机器人消息...')
-    msg_title = f'OKR推进进展周报 {week_str}（{today_str}）'
+    msg_title = f'全国网点OKR推进周报 {week_str}（{today_str}）'
     result = send_robot_message(token, msg_title, md)
     if result.get('processQueryKey'):
         print(f'   发送成功！标题：{msg_title}')

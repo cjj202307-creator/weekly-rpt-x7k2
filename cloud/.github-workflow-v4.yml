@@ -39,13 +39,11 @@ jobs:
           git commit -m "Update OKR report HTML ($(date +%Y-%m-%d))" || echo "No changes to commit"
           git push
 
-      - name: Wait for GitHub Pages deployment
+      - name: Wait for GitHub Pages to serve new report
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-        run: |
-          latest_sha=$(git rev-parse HEAD)
-          python cloud/wait_for_pages.py "$REPO" "$latest_sha"
+          REPORT_URL: ${{ vars.REPORT_URL }}
+          LOCAL_HTML: cloud/okr-report.html
+        run: python cloud/wait_for_pages.py
 
       - name: Send OKR Report Notifications
         env:

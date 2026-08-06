@@ -38,6 +38,13 @@ body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; ba
 .metric-card.gray .num { color: #aab7b8; }
 .metric-card.dark .num { color: #1a1a2e; }
 .section { background: #fff; border-radius: 14px; padding: 26px 34px; margin-bottom: 18px; box-shadow: 0 4px 16px rgba(0,0,0,0.06); border: 1px solid rgba(0,0,0,0.03); }
+.ai-insight { border-left: 4px solid #1a5f9e; background: linear-gradient(135deg, #f5f9ff 0%, #eef4fb 100%); }
+.ai-summary { font-size: 15px; line-height: 1.8; color: #1a1a2e; margin: 10px 0 16px; padding: 14px 18px; background: #fff; border-radius: 10px; box-shadow: 0 2px 8px rgba(26,95,158,0.08); }
+.ai-block { margin-bottom: 12px; }
+.ai-block-title { font-size: 14px; font-weight: 700; color: #1a5f9e; margin-bottom: 6px; }
+.ai-block ul { margin: 0; padding-left: 20px; }
+.ai-block li { font-size: 13px; line-height: 1.7; color: #334; margin-bottom: 4px; }
+.ai-note { font-size: 11px; color: #8898aa; margin-top: 10px; padding-top: 8px; border-top: 1px dashed rgba(0,0,0,0.08); }
 .section h2 { font-size: 17px; font-weight: 700; color: #1a1a2e; margin-bottom: 18px; padding-bottom: 10px; border-bottom: 2px solid #f0f0f0; }
 .o-chart { display: flex; flex-direction: column; gap: 14px; }
 .o-bar-row { display: flex; align-items: center; gap: 12px; }
@@ -306,7 +313,7 @@ html { scroll-behavior: smooth; }
   </div>
   <div class="meta">
     <span>日期：2026-08-06</span>
-    <span>分析时间：2026-08-06 19:28:31（北京时间）</span>
+    <span>分析时间：2026-08-06 21:26:58（北京时间）</span>
     <span>数据来源：协同待办事项表 · 网点OKR推进</span>
     <span class="meta-tag">云端自动生成</span>
   </div>
@@ -314,6 +321,7 @@ html { scroll-behavior: smooth; }
 
 <nav class="topnav">
   <a href="#sec-summary" class="nav-highlight">本周概况</a>
+  <a href="#sec-ai" class="nav-highlight">AI洞察</a>
   <a href="#sec-metrics" class="nav-highlight">指标</a>
   <a href="#sec-compare" class="nav-highlight">周环比</a>
   <a href="#sec-ochart" class="nav-highlight">进度可视化</a>
@@ -332,8 +340,10 @@ html { scroll-behavior: smooth; }
     <li class="warn"><strong>2项KR本周停滞</strong>（无进展描述或进度为0）</li>
   </ul>
   <div class="preview-hint">点击下方指标卡可展开对应KR明细 · 点击KR行可查看进展描述全文</div>
-  <div class="snapshot-note">本报告数据对应分析时间（2026-08-06 19:28:31）的表格快照，如后续表格有更新，数字以最新一期周报为准。</div>
+  <div class="snapshot-note">本报告数据对应分析时间（2026-08-06 21:26:58）的表格快照，如后续表格有更新，数字以最新一期周报为准。</div>
 </div>
+
+
 
 <div class="metrics" id="sec-metrics">
   <div class="metric-card dark clickable" data-metric="avg" onclick="toggleMetricDetail('avg')">

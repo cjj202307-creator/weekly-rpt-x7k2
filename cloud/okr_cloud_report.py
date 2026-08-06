@@ -615,8 +615,8 @@ CSS_TEXT = """
 body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; background: #f5f6f8; color: #2c3e50; line-height: 1.6; }
 .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
 .header { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); border-radius: 18px; padding: 34px 38px; margin-bottom: 22px; box-shadow: 0 10px 40px rgba(26,26,46,0.2); color: #fff; }
-.header-logo { margin-bottom: 18px; display: inline-block; padding: 10px 16px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; }
-    .header-logo img { max-height: 56px; max-width: 100%; height: auto; width: auto; display: block; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.35)); }
+.header-logo { margin-bottom: 18px; display: inline-block; }
+    .header-logo img { max-height: 56px; max-width: 100%; height: auto; width: auto; display: block; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.45)); }
 .header-brand { display: flex; align-items: center; gap: 18px; margin-bottom: 16px; }
 .header-icon { width: 52px; height: 52px; border-radius: 14px; background: linear-gradient(135deg, #3498db 0%, #1a5f9e 100%); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; color: #fff; letter-spacing: 1px; box-shadow: 0 4px 12px rgba(52,152,219,0.35); flex-shrink: 0; }
 .header-titles { flex: 1; min-width: 0; }
@@ -673,6 +673,7 @@ table.kr-table .kr-cell small { color: #8898aa; font-size: 11px; }
 .prog-text { font-size: 12px; font-weight: 600; vertical-align: middle; }
 .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; white-space: nowrap; }
 .badge-red { background: #fdecea; color: #d32f2f; }
+.badge-orange { background: #fff3e0; color: #e65100; }
 .badge-gray { background: #f0f2f5; color: #7f8c8d; }
 .badge-blue { background: #e3f2fd; color: #1a5f9e; }
 .badge-teal { background: #e3f2fd; color: #1a5f9e; }
@@ -812,10 +813,10 @@ html { scroll-behavior: smooth; }
 .metric-card.clickable.active::after { content: "点击收起"; color: #3498db; }
 /* 预览提示 */
 .preview-hint { margin-top: 10px; padding: 6px 12px; background: #f0f7ff; border-radius: 6px; font-size: 12px; color: #1a5f9e; }
-/* 卡点标签（折叠态可见） */
-.mdp-blocker-tag { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 8px; background: #fdecea; color: #d32f2f; font-weight: 600; margin-left: 6px; vertical-align: 1px; }
-/* 卡点详情（展开态可见） */
-.mdp-blocker-detail { display: none; margin-top: 6px; padding: 8px 12px; background: #fdecea; border-radius: 6px; font-size: 12px; color: #d32f2f; line-height: 1.6; border-left: 3px solid #e57373; }
+/* 关注项标签（折叠态可见） */
+.mdp-blocker-tag { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 8px; background: #f0f4f8; color: #4a6572; font-weight: 600; margin-left: 6px; vertical-align: 1px; }
+/* 关注项详情（展开态可见） */
+.mdp-blocker-detail { display: none; margin-top: 6px; padding: 8px 12px; background: #f5f7fa; border-radius: 6px; font-size: 12px; color: #4a6572; line-height: 1.6; border-left: 3px solid #90a4ae; }
 .mdp-kr.expanded .mdp-blocker-detail { display: block; }
 /* 指标详情面板 */
 .metric-detail-panel { display: none; background: #fff; border-radius: 10px; padding: 14px 20px; margin: -4px 0 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-top: 3px solid #3498db; }
@@ -1219,7 +1220,7 @@ def _gen_kr_followers(krs, a):
             else:
                 fol_names = '<span class="badge badge-red">无跟进人</span>'
             overdue_tag = f' <span class="badge badge-red">超目标{a["days_overdue"](kr)}天</span>' if a['is_overdue'](kr) else ''
-            risk_tag = f' <span class="badge badge-red">风险</span>' if a['is_risk'](kr) and not a['is_overdue'](kr) else ''
+            risk_tag = f' <span class="badge badge-orange">需关注</span>' if a['is_risk'](kr) and not a['is_overdue'](kr) else ''
             items_html.append(f'''<div class="kr-follower-item">
   <div class="kr-name"><span class="o-cell">{kr["o"]}</span> {_esc(kr["kr"])}{overdue_tag}{risk_tag}</div>
   <div class="kr-prog" style="color:{color}">{prog_str}</div>
@@ -1280,7 +1281,7 @@ def _gen_progress_highlights(krs, a):
             followers = '、'.join(kr['followers'][:3]) if kr['followers'] else '—'
             more_fol = f' 等{len(kr["followers"])}人' if len(kr['followers']) > 3 else ''
             overdue_tag = f'<span class="badge badge-red">超目标{a["days_overdue"](kr)}天</span>' if a['is_overdue'](kr) else ''
-            blocker_html = f'<div class="ph-blocker"><strong>卡点：</strong>{_esc(kr["blocker"][:120])}</div>' if kr.get('blocker') else ''
+            blocker_html = f'<div class="ph-blocker"><strong>关注项：</strong>{_esc(kr["blocker"][:120])}</div>' if kr.get('blocker') else ''
             parts.append(f'''<div class="ph-card">
   <div class="ph-head">
     <div class="ph-title">{_esc(kr["kr"])}</div>
@@ -1333,8 +1334,8 @@ def _mdp_kr_row(kr, a, extra_meta=''):
         meta_extra = '未设目标日期'
     # 网点信息
     sites_str = f' · {_esc(kr["sites"])}' if kr['sites'] and kr['sites'] != '—' else ''
-    # 卡点指示器
-    blocker_tag = ' <span class="mdp-blocker-tag">有卡点</span>' if kr.get('blocker') else ''
+    # 关注项指示器
+    blocker_tag = ' <span class="mdp-blocker-tag">需关注</span>' if kr.get('blocker') else ''
     if extra_meta:
         meta_extra = f'{meta_extra} · {extra_meta}'
     desc = (kr.get('krDesc') or '').strip()
@@ -1344,8 +1345,8 @@ def _mdp_kr_row(kr, a, extra_meta=''):
     else:
         desc_html = '暂无进展描述'
         desc_cls = 'empty'
-    # 卡点详情（展开时可见）
-    blocker_detail = f'<div class="mdp-blocker-detail"><strong>卡点：</strong>{_esc(kr["blocker"][:150])}</div>' if kr.get('blocker') else ''
+    # 关注项详情（展开时可见）
+    blocker_detail = f'<div class="mdp-blocker-detail"><strong>关注项：</strong>{_esc(kr["blocker"][:150])}</div>' if kr.get('blocker') else ''
     return f'''<div class="mdp-kr">
   <div class="mdp-kr-row" onclick="toggleMKR(this)">
     <span class="mdp-arrow">▶</span>
@@ -1406,14 +1407,16 @@ def _gen_metric_panels(krs, a, comparison=None):
     else:
         updated_krs = [(k, '') for k in krs if a['has_update'](k)]
         updated_title = '本周有实质进展的KR（首周基准：所有有描述更新的KR）'
+    # 所有KR列表统一按 O1→O2→O3→O4 排序
+    updated_krs = sorted(updated_krs, key=lambda x: x[0]['o'])
 
     # 3-6. 其他KR列表类指标
     kr_groups = {
         'updated': (updated_title, updated_krs),
-        'done': ('已达成的KR', [(k, '') for k in krs if k['progress'] == 100]),
-        'overdue': ('超过目标日期未完成的KR', [(k, '') for k in krs if a['is_overdue'](k)]),
-        'stale': ('停滞KR（无进展描述或进度为0）', [(k, '') for k in krs if a['is_stale'](k)]),
-        'untracked': ('未录入进度的KR', [(k, '') for k in krs if k['progress'] is None]),
+        'done': ('已达成的KR', sorted([(k, '') for k in krs if k['progress'] == 100], key=lambda x: x[0]['o'])),
+        'overdue': ('超过目标日期未完成的KR', sorted([(k, '') for k in krs if a['is_overdue'](k)], key=lambda x: x[0]['o'])),
+        'stale': ('停滞KR（无进展描述或进度为0）', sorted([(k, '') for k in krs if a['is_stale'](k)], key=lambda x: x[0]['o'])),
+        'untracked': ('未录入进度的KR', sorted([(k, '') for k in krs if k['progress'] is None], key=lambda x: x[0]['o'])),
     }
     for key, (title, klist) in kr_groups.items():
         if not klist:
@@ -1600,7 +1603,7 @@ def generate_html(a, today_str, week_str='', comparison=None):
         if kr['progress'] == 0 and kr['status'] == '未开始':
             risk_cards.append({
                 'level': 'high', 'title': f'{kr["kr"]} 0%未开始',
-                'detail': f'卡点：{kr["blocker"] or "未记录"}，{kr["followerCount"]}人跟进',
+                'detail': f'当前情况：{kr["blocker"] or "未记录"}，{kr["followerCount"]}人跟进',
                 'action': '建议关注此项的推进节奏，了解当前的资源安排和客户拓展计划'
             })
             break
@@ -1617,7 +1620,7 @@ def generate_html(a, today_str, week_str='', comparison=None):
             risk_cards.append({
                 'level': 'medium',
                 'title': f'{kr["kr"]} {kr["progress"]}%{"（超过目标日期）" if a["is_overdue"](kr) else ""}',
-                'detail': f'卡点：{kr["blocker"] or "未记录"}',
+                'detail': f'当前情况：{kr["blocker"] or "未记录"}',
                 'action': '建议了解当前的资源配置和推进计划'
             })
 
@@ -1702,7 +1705,7 @@ def generate_html(a, today_str, week_str='', comparison=None):
   <a href="#sec-metrics" class="nav-highlight">指标</a>
   <a href="#sec-compare" class="nav-highlight">周环比</a>
   <a href="#sec-ochart" class="nav-highlight">进度可视化</a>
-  <a href="#sec-risk" class="nav-highlight">风险关注</a>
+  <a href="#sec-risk" class="nav-highlight">重点关注</a>
   <a href="#sec-detail" class="nav-highlight">KR明细</a>
   <a href="#sec-followers" class="nav-highlight">跟进人</a>
   <a href="#sec-dq" class="nav-highlight">数据质量</a>
@@ -1771,7 +1774,7 @@ def generate_html(a, today_str, week_str='', comparison=None):
 </div>
 
 <div class="section" id="sec-risk">
-  <h2>风险与关注事项</h2>
+  <h2>重点关注事项</h2>
   <div class="risk-grid" id="riskGrid">{risk_cards_html}</div>
 </div>
 
@@ -1779,7 +1782,7 @@ def generate_html(a, today_str, week_str='', comparison=None):
   <h2>关键结果明细 <small style="font-weight:400;color:#8898aa;font-size:12px;margin-left:8px">备查 · 点击行展开/收起关键结果描述</small></h2>
   <div class="filters" id="filters">
     <button class="filter-btn active" data-filter="all">全部 <span class="count" id="c-all">({c_all})</span></button>
-    <button class="filter-btn" data-filter="risk">风险项 <span class="count" id="c-risk">({c_risk})</span></button>
+    <button class="filter-btn" data-filter="risk">需关注项 <span class="count" id="c-risk">({c_risk})</span></button>
     <button class="filter-btn" data-filter="overdue">超过目标日期 <span class="count" id="c-overdue">({c_overdue})</span></button>
     <button class="filter-btn" data-filter="done">已达成 <span class="count" id="c-done">({c_done})</span></button>
     <button class="filter-btn" data-filter="untracked">未追踪 <span class="count" id="c-untracked">({c_untracked})</span></button>
@@ -1795,7 +1798,7 @@ def generate_html(a, today_str, week_str='', comparison=None):
           <th onclick="sortTable(3)">进度</th>
           <th onclick="sortTable(4)">状态</th>
           <th onclick="sortTable(5)">截止日</th>
-          <th onclick="sortTable(6)">卡点/风险</th>
+          <th onclick="sortTable(6)">关注项/风险</th>
         </tr>
       </thead>
       <tbody id="krBody">{kr_table_html}</tbody>

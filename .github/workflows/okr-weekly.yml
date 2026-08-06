@@ -33,6 +33,6 @@ jobs:
           cp cloud/okr-report.html docs/index.html
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/index.html
+          git add docs/
           git commit -m "Update OKR report HTML ($(date +%Y-%m-%d))" || echo "No changes to commit"
           git push

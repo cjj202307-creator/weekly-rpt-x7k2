@@ -1577,7 +1577,7 @@ def generate_html(a, today_str, week_str='', comparison=None):
     """生成GM视角HTML报告（本周进展亮点置顶，服务端渲染+JS增强交互）"""
     krs = sorted(a['krs'], key=_o_sort_key)
     # 分析时间（北京时间 UTC+8），用于说明本报告对应的表格快照时刻
-    analysis_time = (datetime.now(timezone.utc) + timedelta(hours=8)).strftime('%Y-%m-%d %H:%M')
+    analysis_time = (datetime.now(timezone.utc) + timedelta(hours=8)).strftime('%Y-%m-%d %H:%M:%S')
     # 有历史快照时，"本周有进展"显示真正新增进展数；首周显示所有有描述的KR数
     updated_count_display = len(comparison['truly_updated']) if comparison else a['updated_count']
 

@@ -10,8 +10,8 @@
 body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; background: #f5f6f8; color: #2c3e50; line-height: 1.6; }
 .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
 .header { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); border-radius: 18px; padding: 34px 38px; margin-bottom: 22px; box-shadow: 0 10px 40px rgba(26,26,46,0.2); color: #fff; }
-.header-logo { margin-bottom: 18px; display: inline-block; padding: 10px 16px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; }
-    .header-logo img { max-height: 56px; max-width: 100%; height: auto; width: auto; display: block; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.35)); }
+.header-logo { margin-bottom: 18px; display: inline-block; }
+    .header-logo img { max-height: 56px; max-width: 100%; height: auto; width: auto; display: block; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.45)); }
 .header-brand { display: flex; align-items: center; gap: 18px; margin-bottom: 16px; }
 .header-icon { width: 52px; height: 52px; border-radius: 14px; background: linear-gradient(135deg, #3498db 0%, #1a5f9e 100%); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; color: #fff; letter-spacing: 1px; box-shadow: 0 4px 12px rgba(52,152,219,0.35); flex-shrink: 0; }
 .header-titles { flex: 1; min-width: 0; }
@@ -68,6 +68,7 @@ table.kr-table .kr-cell small { color: #8898aa; font-size: 11px; }
 .prog-text { font-size: 12px; font-weight: 600; vertical-align: middle; }
 .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; white-space: nowrap; }
 .badge-red { background: #fdecea; color: #d32f2f; }
+.badge-orange { background: #fff3e0; color: #e65100; }
 .badge-gray { background: #f0f2f5; color: #7f8c8d; }
 .badge-blue { background: #e3f2fd; color: #1a5f9e; }
 .badge-teal { background: #e3f2fd; color: #1a5f9e; }
@@ -207,10 +208,10 @@ html { scroll-behavior: smooth; }
 .metric-card.clickable.active::after { content: "点击收起"; color: #3498db; }
 /* 预览提示 */
 .preview-hint { margin-top: 10px; padding: 6px 12px; background: #f0f7ff; border-radius: 6px; font-size: 12px; color: #1a5f9e; }
-/* 卡点标签（折叠态可见） */
-.mdp-blocker-tag { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 8px; background: #fdecea; color: #d32f2f; font-weight: 600; margin-left: 6px; vertical-align: 1px; }
-/* 卡点详情（展开态可见） */
-.mdp-blocker-detail { display: none; margin-top: 6px; padding: 8px 12px; background: #fdecea; border-radius: 6px; font-size: 12px; color: #d32f2f; line-height: 1.6; border-left: 3px solid #e57373; }
+/* 关注项标签（折叠态可见） */
+.mdp-blocker-tag { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 8px; background: #f0f4f8; color: #4a6572; font-weight: 600; margin-left: 6px; vertical-align: 1px; }
+/* 关注项详情（展开态可见） */
+.mdp-blocker-detail { display: none; margin-top: 6px; padding: 8px 12px; background: #f5f7fa; border-radius: 6px; font-size: 12px; color: #4a6572; line-height: 1.6; border-left: 3px solid #90a4ae; }
 .mdp-kr.expanded .mdp-blocker-detail { display: block; }
 /* 指标详情面板 */
 .metric-detail-panel { display: none; background: #fff; border-radius: 10px; padding: 14px 20px; margin: -4px 0 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-top: 3px solid #3498db; }
@@ -314,7 +315,7 @@ html { scroll-behavior: smooth; }
   <a href="#sec-metrics" class="nav-highlight">指标</a>
   <a href="#sec-compare" class="nav-highlight">周环比</a>
   <a href="#sec-ochart" class="nav-highlight">进度可视化</a>
-  <a href="#sec-risk" class="nav-highlight">风险关注</a>
+  <a href="#sec-risk" class="nav-highlight">重点关注</a>
   <a href="#sec-detail" class="nav-highlight">KR明细</a>
   <a href="#sec-followers" class="nav-highlight">跟进人</a>
   <a href="#sec-dq" class="nav-highlight">数据质量</a>
@@ -385,7 +386,7 @@ html { scroll-behavior: smooth; }
   <div class="mdp-kr-row" onclick="toggleMKR(this)">
     <span class="mdp-arrow">▶</span>
     <span class="o-badge">O1</span>
-    <span class="mdp-kr-name">三支柱人员定岗与职责边界梳理 <span class="mdp-blocker-tag">有卡点</span></span>
+    <span class="mdp-kr-name">三支柱人员定岗与职责边界梳理 <span class="mdp-blocker-tag">需关注</span></span>
     <span class="mdp-kr-prog" style="color:#5dade2">51%</span>
     <span class="mdp-kr-meta">李云松、蒋青、丁佳俊等6人 · 全国网点 · 未设目标日期</span>
   </div>
@@ -402,39 +403,12 @@ EHS专家-张磊（培养中）
 杭州：客户成功经理-魏婧(培养中）/数智化专家-霍倩（培养中）/EHS专家毛国祥（培养中）/海关事务专家-胡英(培养中）
 深圳：客户成功经理-李永红|张梅/数智化专家-吴邦尧/EHS专家李建平/海关事务专家-沈文晋
 广州：客户成功经理-王紫欣（培养中）/数智化专家-高嘉豪/EHS专家-张金志/海关事务专家-徐振涛（代）</div>
-  <div class="mdp-blocker-detail"><strong>卡点：</strong>人才选择和淘汰</div>
-</div><div class="mdp-kr">
-  <div class="mdp-kr-row" onclick="toggleMKR(this)">
-    <span class="mdp-arrow">▶</span>
-    <span class="o-badge">O2</span>
-    <span class="mdp-kr-name">区域唯一码颗粒度定义与覆盖率100% <span class="mdp-blocker-tag">有卡点</span></span>
-    <span class="mdp-kr-prog" style="color:#1a5f9e">80%</span>
-    <span class="mdp-kr-meta">金夏阳、姚飞、王凯等10人 · 全国网点 · 目标2026-12-30</span>
-  </div>
-  <div class="mdp-desc ">1.成都英特尔账册流转业务实现唯一码实物进出管理（进行中）
-2.勒姆工程师资产货物的线上化-北京、深圳（深圳已实现线上化管理）
-3.中微工程师管理物料（推进中，部分工程师落实）
-4.佳能工程师暂存非保消耗品线上化（已完成）
-5.佳能非保税货物系统管理有佳能系统管理切转到泓明系统管理（已完成）</div>
-  <div class="mdp-blocker-detail"><strong>卡点：</strong>业务小众，管理惰性</div>
-</div><div class="mdp-kr">
-  <div class="mdp-kr-row" onclick="toggleMKR(this)">
-    <span class="mdp-arrow">▶</span>
-    <span class="o-badge">O3</span>
-    <span class="mdp-kr-name">国内采购场景标准化SOP（菲尼萨等） <span class="mdp-blocker-tag">有卡点</span></span>
-    <span class="mdp-kr-prog" style="color:#5dade2">30%</span>
-    <span class="mdp-kr-meta">何鹏喆、王嘉晔、俞晓燕 · 无锡/西安 · 目标2026-09-29</span>
-  </div>
-  <div class="mdp-desc ">1.1菲尼萨国内采购切入COS3.0（进行中-保税流转和手册未完成）
-1.2菲尼萨一线进出口切入COS3.0（待定）
-2.菲尼萨定制看板（进行中）
-3.配合总部推进贸易代理TIS系统订单IDP识别+AI逻辑+RPA(进行中)</div>
-  <div class="mdp-blocker-detail"><strong>卡点：</strong>资源配置和进度跟踪不及时</div>
+  <div class="mdp-blocker-detail"><strong>关注项：</strong>人才选择和淘汰</div>
 </div><div class="mdp-kr">
   <div class="mdp-kr-row" onclick="toggleMKR(this)">
     <span class="mdp-arrow">▶</span>
     <span class="o-badge">O1</span>
-    <span class="mdp-kr-name">智能体AI+数智化人才≥10人 <span class="mdp-blocker-tag">有卡点</span></span>
+    <span class="mdp-kr-name">智能体AI+数智化人才≥10人 <span class="mdp-blocker-tag">需关注</span></span>
     <span class="mdp-kr-prog" style="color:#1a5f9e">80%</span>
     <span class="mdp-kr-meta">吴迪、蔡嘉骏、高盼盼等6人 · 全国网点 · 目标2026-12-30</span>
   </div>
@@ -446,12 +420,12 @@ EHS专家-张磊（培养中）
 5.厦门：赵静芳
 6合肥：王跃
 7杭州：霍倩</div>
-  <div class="mdp-blocker-detail"><strong>卡点：</strong>人才储备不足，当前仅锁定5人，距目标缺口明显；缺乏常态化选拔与实战认证机制，“以战代训”覆盖面待扩围。</div>
+  <div class="mdp-blocker-detail"><strong>关注项：</strong>人才储备不足，当前仅锁定5人，距目标缺口明显；缺乏常态化选拔与实战认证机制，“以战代训”覆盖面待扩围。</div>
 </div><div class="mdp-kr">
   <div class="mdp-kr-row" onclick="toggleMKR(this)">
     <span class="mdp-arrow">▶</span>
     <span class="o-badge">O1</span>
-    <span class="mdp-kr-name">智能体工具核心场景落地≥5个 <span class="mdp-blocker-tag">有卡点</span></span>
+    <span class="mdp-kr-name">智能体工具核心场景落地≥5个 <span class="mdp-blocker-tag">需关注</span></span>
     <span class="mdp-kr-prog" style="color:#1a5f9e">80%</span>
     <span class="mdp-kr-meta">蔡嘉骏、高盼盼、王跃等5人 · 目标2026-12-30</span>
   </div>
@@ -459,13 +433,55 @@ EHS专家-张磊（培养中）
 2.玄水贸易合规智能体落地各地进行应用
 3.特种设备识别智能体（开发进行中）
 4.网点工作助理（8.6已上线OKR推进周报功能）</div>
-  <div class="mdp-blocker-detail"><strong>卡点：</strong>智能体虽已完成属地化覆盖，但由“单点试用”向“核心场景规模化落地”的转化尚未破局。一线应用多停留在浅层操作，导致实证数据沉淀不足，暂未孵化出可纳入集团知识库的实战优秀案例。
+  <div class="mdp-blocker-detail"><strong>关注项：</strong>智能体虽已完成属地化覆盖，但由“单点试用”向“核心场景规模化落地”的转化尚未破局。一线应用多停留在浅层操作，导致实证数据沉淀不足，暂未孵化出可纳入集团知识库的实战优秀案例。
 </div>
 </div><div class="mdp-kr">
   <div class="mdp-kr-row" onclick="toggleMKR(this)">
     <span class="mdp-arrow">▶</span>
+    <span class="o-badge">O1</span>
+    <span class="mdp-kr-name">核心岗位覆盖率≥90% <span class="mdp-blocker-tag">需关注</span></span>
+    <span class="mdp-kr-prog" style="color:#aab7b8">未录入</span>
+    <span class="mdp-kr-meta">蒋青、李云松、戴厚芬等8人 · 全国网点 · 未设目标日期</span>
+  </div>
+  <div class="mdp-desc ">合肥:完成合肥中微项目团队补全及稳定对应，项目负责人：贾晓娟 B角（培养中）：孙冀徽
+北京：客户成功经理贾丽君（培养中），负责对接永芯，长鑫等大客户
+深圳：昇维旭驻场项目B角陈海燕(培养中)
+南京：货代专家狄梦瑶（培养中），南京台积电项目对接王薇（培养中）
+成都：华虹驻厂、华虹项目负责：朱凤玲
+西安：贸易代理专家：何鹏喆</div>
+  <div class="mdp-blocker-detail"><strong>关注项：</strong>供需和培养</div>
+</div><div class="mdp-kr">
+  <div class="mdp-kr-row" onclick="toggleMKR(this)">
+    <span class="mdp-arrow">▶</span>
+    <span class="o-badge">O1</span>
+    <span class="mdp-kr-name">智能体应用基础培训覆盖率100% <span class="mdp-blocker-tag">需关注</span></span>
+    <span class="mdp-kr-prog" style="color:#5dade2">50%</span>
+    <span class="mdp-kr-meta">蔡嘉骏、高盼盼、王志瑞等6人 · 未设目标日期</span>
+  </div>
+  <div class="mdp-desc ">1.协同ITC 完成玄水单证审核智能体操作培训
+2.协同HRC进行钉钉AI表格基础培训
+3.西安Open Code应用、危化品判定Skill 1.0操作培训
+4.深圳7月13日组织玄水智能体应用培训。</div>
+  <div class="mdp-blocker-detail"><strong>关注项：</strong>培训全覆盖，但学用转化不足。一线对智能体工具多停留在基础操作层面，缺乏结合复杂业务的实战演练</div>
+</div><div class="mdp-kr">
+  <div class="mdp-kr-row" onclick="toggleMKR(this)">
+    <span class="mdp-arrow">▶</span>
     <span class="o-badge">O2</span>
-    <span class="mdp-kr-name">WMS/TMS/FMS/COS系统100%执行使用 <span class="mdp-blocker-tag">有卡点</span></span>
+    <span class="mdp-kr-name">区域唯一码颗粒度定义与覆盖率100% <span class="mdp-blocker-tag">需关注</span></span>
+    <span class="mdp-kr-prog" style="color:#1a5f9e">80%</span>
+    <span class="mdp-kr-meta">金夏阳、姚飞、王凯等10人 · 全国网点 · 目标2026-12-30</span>
+  </div>
+  <div class="mdp-desc ">1.成都英特尔账册流转业务实现唯一码实物进出管理（进行中）
+2.勒姆工程师资产货物的线上化-北京、深圳（深圳已实现线上化管理）
+3.中微工程师管理物料（推进中，部分工程师落实）
+4.佳能工程师暂存非保消耗品线上化（已完成）
+5.佳能非保税货物系统管理有佳能系统管理切转到泓明系统管理（已完成）</div>
+  <div class="mdp-blocker-detail"><strong>关注项：</strong>业务小众，管理惰性</div>
+</div><div class="mdp-kr">
+  <div class="mdp-kr-row" onclick="toggleMKR(this)">
+    <span class="mdp-arrow">▶</span>
+    <span class="o-badge">O2</span>
+    <span class="mdp-kr-name">WMS/TMS/FMS/COS系统100%执行使用 <span class="mdp-blocker-tag">需关注</span></span>
     <span class="mdp-kr-prog" style="color:#5dade2">50%</span>
     <span class="mdp-kr-meta">李婷、高盼盼、王志瑞等9人 · 全国网点 · 超过目标日期38天</span>
   </div>
@@ -473,30 +489,54 @@ EHS专家-张磊（培养中）
 2.业务申报表年度新建分包发送功能-深圳(确认中)
 3.完善手持机收货、包装复核、出库交接功能（深圳-已开发、待改善）
 4.Intel设备减除监管CMS操作缺失核注清单管理（确认中）</div>
-  <div class="mdp-blocker-detail"><strong>卡点：</strong>客户的差异性大，方案分类不清，以客户为主；员工以系统走通为主导，而不是走顺，领导缺失问题挖掘</div>
-</div><div class="mdp-kr">
-  <div class="mdp-kr-row" onclick="toggleMKR(this)">
-    <span class="mdp-arrow">▶</span>
-    <span class="o-badge">O4</span>
-    <span class="mdp-kr-name">输出≥2项区域业务洞察与优化建议 <span class="mdp-blocker-tag">有卡点</span></span>
-    <span class="mdp-kr-prog" style="color:#1a5f9e">80%</span>
-    <span class="mdp-kr-meta">崔健、陈腾龙、陈裕波等8人 · 全国网点 · 超过目标日期48天</span>
-  </div>
-  <div class="mdp-desc ">1.合肥 ：WMS 数据回传 DMS 系统：方案评估工作持续中，当前状态为待评审。同步多网点系统优化项目：持续搜集各网点作业现状、业务规则及功能需求，为后续系统统一优化、流程标准化开发提供数据支撑。
-2.最终用户关务系统上传数据和资料的RPA导入-永新、海力士、三星（已完成）
-3.下游战略储备客户标签统一管理，实现客户标签管理（测试中）</div>
-  <div class="mdp-blocker-detail"><strong>卡点：</strong>系统开发基于TSS保税仓，忽视特殊区域方案</div>
+  <div class="mdp-blocker-detail"><strong>关注项：</strong>客户的差异性大，方案分类不清，以客户为主；员工以系统走通为主导，而不是走顺，领导缺失问题挖掘</div>
 </div><div class="mdp-kr">
   <div class="mdp-kr-row" onclick="toggleMKR(this)">
     <span class="mdp-arrow">▶</span>
     <span class="o-badge">O2</span>
-    <span class="mdp-kr-name">CPQ报价结算标准化（新客户100%） <span class="mdp-blocker-tag">有卡点</span></span>
+    <span class="mdp-kr-name">CPQ报价结算标准化（新客户100%） <span class="mdp-blocker-tag">需关注</span></span>
     <span class="mdp-kr-prog" style="color:#5dade2">30%</span>
     <span class="mdp-kr-meta">蔡嘉骏、何鹏喆、陈岑等11人 · 全国网点 · 超过目标日期38天</span>
   </div>
   <div class="mdp-desc ">网点性客户落实：北京-亦盛、新和、新耕；厦门-华加、増拓；成都：英特尔、嘉宏、中菲行、华润微电子，润西微电子；西安：道益静电、鼎鑫环保、上海腾见、深圳赛弥康；合肥：颀材、沛顿、日通；无锡：联邦。南京：拓邦微电子、卡尔蔡司
 东电的账单统一（进行中）</div>
-  <div class="mdp-blocker-detail"><strong>卡点：</strong>全国性客户的网点权限申请不清晰；CMS与CPQ未联通结算；一对1+多的客户结算存在问题；</div>
+  <div class="mdp-blocker-detail"><strong>关注项：</strong>全国性客户的网点权限申请不清晰；CMS与CPQ未联通结算；一对1+多的客户结算存在问题；</div>
+</div><div class="mdp-kr">
+  <div class="mdp-kr-row" onclick="toggleMKR(this)">
+    <span class="mdp-arrow">▶</span>
+    <span class="o-badge">O2</span>
+    <span class="mdp-kr-name">大订单标准化执行率100% <span class="mdp-blocker-tag">需关注</span></span>
+    <span class="mdp-kr-prog" style="color:#aab7b8">未录入</span>
+    <span class="mdp-kr-meta">王志瑞、洪玲、吴邦尧等6人 · 全国网点 · 超过目标日期38天</span>
+  </div>
+  <div class="mdp-desc ">指令标准统一、并完成订单中台化：深圳、北京、大连；
+指令标准统一、部分完成订单中台化：合肥、南京；
+指令标准统一、订单中台化排期中：杭州、广州、厦门、成都、西安、无锡。</div>
+  <div class="mdp-blocker-detail"><strong>关注项：</strong>时效问题限制，急货的沟通；中台的资源</div>
+</div><div class="mdp-kr">
+  <div class="mdp-kr-row" onclick="toggleMKR(this)">
+    <span class="mdp-arrow">▶</span>
+    <span class="o-badge">O2</span>
+    <span class="mdp-kr-name">O2C线下断点清单补全 <span class="mdp-blocker-tag">需关注</span></span>
+    <span class="mdp-kr-prog" style="color:#5dade2">50%</span>
+    <span class="mdp-kr-meta">姜琳琳、王志瑞、贾晓娟等10人 · 金种子 · 目标2026-12-30</span>
+  </div>
+  <div class="mdp-desc ">1，贸易代理TIS系统与菲尼萨关务的数据接入（待确认）
+2，WMS待发货区管理功能缺失(实物管理缺失)（已上线）</div>
+  <div class="mdp-blocker-detail"><strong>关注项：</strong>自有系统体系和功能定位确定后的互联互通原则不清楚；现场实际管理和系统的结合匹配度问题；现场以系统走通为主导，而不是走顺。</div>
+</div><div class="mdp-kr">
+  <div class="mdp-kr-row" onclick="toggleMKR(this)">
+    <span class="mdp-arrow">▶</span>
+    <span class="o-badge">O3</span>
+    <span class="mdp-kr-name">国内采购场景标准化SOP（菲尼萨等） <span class="mdp-blocker-tag">需关注</span></span>
+    <span class="mdp-kr-prog" style="color:#5dade2">30%</span>
+    <span class="mdp-kr-meta">何鹏喆、王嘉晔、俞晓燕 · 无锡/西安 · 目标2026-09-29</span>
+  </div>
+  <div class="mdp-desc ">1.1菲尼萨国内采购切入COS3.0（进行中-保税流转和手册未完成）
+1.2菲尼萨一线进出口切入COS3.0（待定）
+2.菲尼萨定制看板（进行中）
+3.配合总部推进贸易代理TIS系统订单IDP识别+AI逻辑+RPA(进行中)</div>
+  <div class="mdp-blocker-detail"><strong>关注项：</strong>资源配置和进度跟踪不及时</div>
 </div><div class="mdp-kr">
   <div class="mdp-kr-row" onclick="toggleMKR(this)">
     <span class="mdp-arrow">▶</span>
@@ -523,13 +563,49 @@ EHS专家-张磊（培养中）
 </div><div class="mdp-kr">
   <div class="mdp-kr-row" onclick="toggleMKR(this)">
     <span class="mdp-arrow">▶</span>
+    <span class="o-badge">O3</span>
+    <span class="mdp-kr-name">每季度收集卡点≥3条 <span class="mdp-blocker-tag">需关注</span></span>
+    <span class="mdp-kr-prog" style="color:#5dade2">66%</span>
+    <span class="mdp-kr-meta">陈腾龙、李云松、丁佳俊等7人 · 参谋 · 目标2026-12-30</span>
+  </div>
+  <div class="mdp-desc ">1.通关类服务产品缺乏申报要素信息的逻辑校验（评估中-两用物项、证件、归类准确性等）；通关类服务产品的时效性KPI需写入系统中，准确性需提升。
+2.运输类服务产品一票多车的车辆管理（进行中）；</div>
+  <div class="mdp-blocker-detail"><strong>关注项：</strong>顺从心理，缺乏提出疑问的勇气和胆识</div>
+</div><div class="mdp-kr">
+  <div class="mdp-kr-row" onclick="toggleMKR(this)">
+    <span class="mdp-arrow">▶</span>
+    <span class="o-badge">O3</span>
+    <span class="mdp-kr-name">数智化应用复制推广 <span class="mdp-blocker-tag">需关注</span></span>
+    <span class="mdp-kr-prog" style="color:#5dade2">50%</span>
+    <span class="mdp-kr-meta">高盼盼、王跃、蔡嘉骏 · 未设目标日期</span>
+  </div>
+  <div class="mdp-desc ">1.看板类：运输质量看板（网点）/仓库运营KPI看板（网点）/人效看板/温湿度看板-深圳/合肥/无锡；仓库工单管理看板（成都，合肥，深圳，厦门，北京）/屹唐（EST）出入库业务监控看板（无锡，深圳，合肥）
+出区维修业务合规看板（西安）/海关库存核查看板（南京）
+2.RPA类：账单录入自动化（成都/南京/深圳/厦门/杭州/无锡/合肥）/北京中芯核销数据处理及单证上传自动化/成都华虹报关单&amp;税单&amp;放行通知书抓取推送自动化/无锡海力士最终用户系统账单自动化录入
+3.HAP类：进口业务订单自动化-亘福&amp;PSK（合肥/西安/无锡/北京/南京/深圳/厦门/成都)/ LAM库存数据自动盘点（南京）/成都华虹二线核销订单自动化</div>
+  <div class="mdp-blocker-detail"><strong>关注项：</strong>认知局限，特别网点leader</div>
+</div><div class="mdp-kr">
+  <div class="mdp-kr-row" onclick="toggleMKR(this)">
+    <span class="mdp-arrow">▶</span>
     <span class="o-badge">O4</span>
-    <span class="mdp-kr-name">每季度战略复盘会闭环率100% <span class="mdp-blocker-tag">有卡点</span></span>
+    <span class="mdp-kr-name">输出≥2项区域业务洞察与优化建议 <span class="mdp-blocker-tag">需关注</span></span>
+    <span class="mdp-kr-prog" style="color:#1a5f9e">80%</span>
+    <span class="mdp-kr-meta">崔健、陈腾龙、陈裕波等8人 · 全国网点 · 超过目标日期48天</span>
+  </div>
+  <div class="mdp-desc ">1.合肥 ：WMS 数据回传 DMS 系统：方案评估工作持续中，当前状态为待评审。同步多网点系统优化项目：持续搜集各网点作业现状、业务规则及功能需求，为后续系统统一优化、流程标准化开发提供数据支撑。
+2.最终用户关务系统上传数据和资料的RPA导入-永新、海力士、三星（已完成）
+3.下游战略储备客户标签统一管理，实现客户标签管理（测试中）</div>
+  <div class="mdp-blocker-detail"><strong>关注项：</strong>系统开发基于TSS保税仓，忽视特殊区域方案</div>
+</div><div class="mdp-kr">
+  <div class="mdp-kr-row" onclick="toggleMKR(this)">
+    <span class="mdp-arrow">▶</span>
+    <span class="o-badge">O4</span>
+    <span class="mdp-kr-name">每季度战略复盘会闭环率100% <span class="mdp-blocker-tag">需关注</span></span>
     <span class="mdp-kr-prog" style="color:#5dade2">50%</span>
     <span class="mdp-kr-meta">熊海、崔健、蒋青等12人 · 全国网点 · 超过目标日期48天</span>
   </div>
   <div class="mdp-desc ">各个网点自行每两周一次的复盘会；网点全体的每周一次的进度更新会议和每月一次的复盘会。</div>
-  <div class="mdp-blocker-detail"><strong>卡点：</strong>管理人员在运营方面不重视，重心往往在客户层面</div>
+  <div class="mdp-blocker-detail"><strong>关注项：</strong>管理人员在运营方面不重视，重心往往在客户层面</div>
 </div><div class="mdp-kr">
   <div class="mdp-kr-row" onclick="toggleMKR(this)">
     <span class="mdp-arrow">▶</span>
@@ -540,81 +616,6 @@ EHS专家-张磊（培养中）
   </div>
   <div class="mdp-desc ">每月盘点</div>
   
-</div><div class="mdp-kr">
-  <div class="mdp-kr-row" onclick="toggleMKR(this)">
-    <span class="mdp-arrow">▶</span>
-    <span class="o-badge">O2</span>
-    <span class="mdp-kr-name">大订单标准化执行率100% <span class="mdp-blocker-tag">有卡点</span></span>
-    <span class="mdp-kr-prog" style="color:#aab7b8">未录入</span>
-    <span class="mdp-kr-meta">王志瑞、洪玲、吴邦尧等6人 · 全国网点 · 超过目标日期38天</span>
-  </div>
-  <div class="mdp-desc ">指令标准统一、并完成订单中台化：深圳、北京、大连；
-指令标准统一、部分完成订单中台化：合肥、南京；
-指令标准统一、订单中台化排期中：杭州、广州、厦门、成都、西安、无锡。</div>
-  <div class="mdp-blocker-detail"><strong>卡点：</strong>时效问题限制，急货的沟通；中台的资源</div>
-</div><div class="mdp-kr">
-  <div class="mdp-kr-row" onclick="toggleMKR(this)">
-    <span class="mdp-arrow">▶</span>
-    <span class="o-badge">O1</span>
-    <span class="mdp-kr-name">核心岗位覆盖率≥90% <span class="mdp-blocker-tag">有卡点</span></span>
-    <span class="mdp-kr-prog" style="color:#aab7b8">未录入</span>
-    <span class="mdp-kr-meta">蒋青、李云松、戴厚芬等8人 · 全国网点 · 未设目标日期</span>
-  </div>
-  <div class="mdp-desc ">合肥:完成合肥中微项目团队补全及稳定对应，项目负责人：贾晓娟 B角（培养中）：孙冀徽
-北京：客户成功经理贾丽君（培养中），负责对接永芯，长鑫等大客户
-深圳：昇维旭驻场项目B角陈海燕(培养中)
-南京：货代专家狄梦瑶（培养中），南京台积电项目对接王薇（培养中）
-成都：华虹驻厂、华虹项目负责：朱凤玲
-西安：贸易代理专家：何鹏喆</div>
-  <div class="mdp-blocker-detail"><strong>卡点：</strong>供需和培养</div>
-</div><div class="mdp-kr">
-  <div class="mdp-kr-row" onclick="toggleMKR(this)">
-    <span class="mdp-arrow">▶</span>
-    <span class="o-badge">O1</span>
-    <span class="mdp-kr-name">智能体应用基础培训覆盖率100% <span class="mdp-blocker-tag">有卡点</span></span>
-    <span class="mdp-kr-prog" style="color:#5dade2">50%</span>
-    <span class="mdp-kr-meta">蔡嘉骏、高盼盼、王志瑞等6人 · 未设目标日期</span>
-  </div>
-  <div class="mdp-desc ">1.协同ITC 完成玄水单证审核智能体操作培训
-2.协同HRC进行钉钉AI表格基础培训
-3.西安Open Code应用、危化品判定Skill 1.0操作培训
-4.深圳7月13日组织玄水智能体应用培训。</div>
-  <div class="mdp-blocker-detail"><strong>卡点：</strong>培训全覆盖，但学用转化不足。一线对智能体工具多停留在基础操作层面，缺乏结合复杂业务的实战演练</div>
-</div><div class="mdp-kr">
-  <div class="mdp-kr-row" onclick="toggleMKR(this)">
-    <span class="mdp-arrow">▶</span>
-    <span class="o-badge">O2</span>
-    <span class="mdp-kr-name">O2C线下断点清单补全 <span class="mdp-blocker-tag">有卡点</span></span>
-    <span class="mdp-kr-prog" style="color:#5dade2">50%</span>
-    <span class="mdp-kr-meta">姜琳琳、王志瑞、贾晓娟等10人 · 金种子 · 目标2026-12-30</span>
-  </div>
-  <div class="mdp-desc ">1，贸易代理TIS系统与菲尼萨关务的数据接入（待确认）
-2，WMS待发货区管理功能缺失(实物管理缺失)（已上线）</div>
-  <div class="mdp-blocker-detail"><strong>卡点：</strong>自有系统体系和功能定位确定后的互联互通原则不清楚；现场实际管理和系统的结合匹配度问题；现场以系统走通为主导，而不是走顺。</div>
-</div><div class="mdp-kr">
-  <div class="mdp-kr-row" onclick="toggleMKR(this)">
-    <span class="mdp-arrow">▶</span>
-    <span class="o-badge">O3</span>
-    <span class="mdp-kr-name">每季度收集卡点≥3条 <span class="mdp-blocker-tag">有卡点</span></span>
-    <span class="mdp-kr-prog" style="color:#5dade2">66%</span>
-    <span class="mdp-kr-meta">陈腾龙、李云松、丁佳俊等7人 · 参谋 · 目标2026-12-30</span>
-  </div>
-  <div class="mdp-desc ">1.通关类服务产品缺乏申报要素信息的逻辑校验（评估中-两用物项、证件、归类准确性等）；通关类服务产品的时效性KPI需写入系统中，准确性需提升。
-2.运输类服务产品一票多车的车辆管理（进行中）；</div>
-  <div class="mdp-blocker-detail"><strong>卡点：</strong>顺从心理，缺乏提出疑问的勇气和胆识</div>
-</div><div class="mdp-kr">
-  <div class="mdp-kr-row" onclick="toggleMKR(this)">
-    <span class="mdp-arrow">▶</span>
-    <span class="o-badge">O3</span>
-    <span class="mdp-kr-name">数智化应用复制推广 <span class="mdp-blocker-tag">有卡点</span></span>
-    <span class="mdp-kr-prog" style="color:#5dade2">50%</span>
-    <span class="mdp-kr-meta">高盼盼、王跃、蔡嘉骏 · 未设目标日期</span>
-  </div>
-  <div class="mdp-desc ">1.看板类：运输质量看板（网点）/仓库运营KPI看板（网点）/人效看板/温湿度看板-深圳/合肥/无锡；仓库工单管理看板（成都，合肥，深圳，厦门，北京）/屹唐（EST）出入库业务监控看板（无锡，深圳，合肥）
-出区维修业务合规看板（西安）/海关库存核查看板（南京）
-2.RPA类：账单录入自动化（成都/南京/深圳/厦门/杭州/无锡/合肥）/北京中芯核销数据处理及单证上传自动化/成都华虹报关单&amp;税单&amp;放行通知书抓取推送自动化/无锡海力士最终用户系统账单自动化录入
-3.HAP类：进口业务订单自动化-亘福&amp;PSK（合肥/西安/无锡/北京/南京/深圳/厦门/成都)/ LAM库存数据自动盘点（南京）/成都华虹二线核销订单自动化</div>
-  <div class="mdp-blocker-detail"><strong>卡点：</strong>认知局限，特别网点leader</div>
 </div></div>
 <div class="metric-detail-panel" id="mdp-done"><div class="mdp-header">已达成的KR（1项）</div><div class="mdp-kr">
   <div class="mdp-kr-row" onclick="toggleMKR(this)">
@@ -631,17 +632,17 @@ EHS专家-张磊（培养中）
   <div class="mdp-kr-row" onclick="toggleMKR(this)">
     <span class="mdp-arrow">▶</span>
     <span class="o-badge">O2</span>
-    <span class="mdp-kr-name">推广泓明订单标准 <span class="mdp-blocker-tag">有卡点</span></span>
+    <span class="mdp-kr-name">推广泓明订单标准 <span class="mdp-blocker-tag">需关注</span></span>
     <span class="mdp-kr-prog" style="color:#e57373">0%</span>
     <span class="mdp-kr-meta">洪玲、姜琳琳、孙美琳等4人 · 全国网点 · 超过目标日期7天</span>
   </div>
   <div class="mdp-desc empty">暂无进展描述</div>
-  <div class="mdp-blocker-detail"><strong>卡点：</strong>指令集中和指令统一进程开始比较晚；目标的共识不清晰、不主动</div>
+  <div class="mdp-blocker-detail"><strong>关注项：</strong>指令集中和指令统一进程开始比较晚；目标的共识不清晰、不主动</div>
 </div><div class="mdp-kr">
   <div class="mdp-kr-row" onclick="toggleMKR(this)">
     <span class="mdp-arrow">▶</span>
     <span class="o-badge">O2</span>
-    <span class="mdp-kr-name">WMS/TMS/FMS/COS系统100%执行使用 <span class="mdp-blocker-tag">有卡点</span></span>
+    <span class="mdp-kr-name">WMS/TMS/FMS/COS系统100%执行使用 <span class="mdp-blocker-tag">需关注</span></span>
     <span class="mdp-kr-prog" style="color:#5dade2">50%</span>
     <span class="mdp-kr-meta">李婷、高盼盼、王志瑞等9人 · 全国网点 · 超过目标日期38天</span>
   </div>
@@ -649,91 +650,79 @@ EHS专家-张磊（培养中）
 2.业务申报表年度新建分包发送功能-深圳(确认中)
 3.完善手持机收货、包装复核、出库交接功能（深圳-已开发、待改善）
 4.Intel设备减除监管CMS操作缺失核注清单管理（确认中）</div>
-  <div class="mdp-blocker-detail"><strong>卡点：</strong>客户的差异性大，方案分类不清，以客户为主；员工以系统走通为主导，而不是走顺，领导缺失问题挖掘</div>
+  <div class="mdp-blocker-detail"><strong>关注项：</strong>客户的差异性大，方案分类不清，以客户为主；员工以系统走通为主导，而不是走顺，领导缺失问题挖掘</div>
+</div><div class="mdp-kr">
+  <div class="mdp-kr-row" onclick="toggleMKR(this)">
+    <span class="mdp-arrow">▶</span>
+    <span class="o-badge">O2</span>
+    <span class="mdp-kr-name">CPQ报价结算标准化（新客户100%） <span class="mdp-blocker-tag">需关注</span></span>
+    <span class="mdp-kr-prog" style="color:#5dade2">30%</span>
+    <span class="mdp-kr-meta">蔡嘉骏、何鹏喆、陈岑等11人 · 全国网点 · 超过目标日期38天</span>
+  </div>
+  <div class="mdp-desc ">网点性客户落实：北京-亦盛、新和、新耕；厦门-华加、増拓；成都：英特尔、嘉宏、中菲行、华润微电子，润西微电子；西安：道益静电、鼎鑫环保、上海腾见、深圳赛弥康；合肥：颀材、沛顿、日通；无锡：联邦。南京：拓邦微电子、卡尔蔡司
+东电的账单统一（进行中）</div>
+  <div class="mdp-blocker-detail"><strong>关注项：</strong>全国性客户的网点权限申请不清晰；CMS与CPQ未联通结算；一对1+多的客户结算存在问题；</div>
+</div><div class="mdp-kr">
+  <div class="mdp-kr-row" onclick="toggleMKR(this)">
+    <span class="mdp-arrow">▶</span>
+    <span class="o-badge">O2</span>
+    <span class="mdp-kr-name">大订单标准化执行率100% <span class="mdp-blocker-tag">需关注</span></span>
+    <span class="mdp-kr-prog" style="color:#aab7b8">未录入</span>
+    <span class="mdp-kr-meta">王志瑞、洪玲、吴邦尧等6人 · 全国网点 · 超过目标日期38天</span>
+  </div>
+  <div class="mdp-desc ">指令标准统一、并完成订单中台化：深圳、北京、大连；
+指令标准统一、部分完成订单中台化：合肥、南京；
+指令标准统一、订单中台化排期中：杭州、广州、厦门、成都、西安、无锡。</div>
+  <div class="mdp-blocker-detail"><strong>关注项：</strong>时效问题限制，急货的沟通；中台的资源</div>
 </div><div class="mdp-kr">
   <div class="mdp-kr-row" onclick="toggleMKR(this)">
     <span class="mdp-arrow">▶</span>
     <span class="o-badge">O4</span>
-    <span class="mdp-kr-name">输出≥2项区域业务洞察与优化建议 <span class="mdp-blocker-tag">有卡点</span></span>
+    <span class="mdp-kr-name">输出≥2项区域业务洞察与优化建议 <span class="mdp-blocker-tag">需关注</span></span>
     <span class="mdp-kr-prog" style="color:#1a5f9e">80%</span>
     <span class="mdp-kr-meta">崔健、陈腾龙、陈裕波等8人 · 全国网点 · 超过目标日期48天</span>
   </div>
   <div class="mdp-desc ">1.合肥 ：WMS 数据回传 DMS 系统：方案评估工作持续中，当前状态为待评审。同步多网点系统优化项目：持续搜集各网点作业现状、业务规则及功能需求，为后续系统统一优化、流程标准化开发提供数据支撑。
 2.最终用户关务系统上传数据和资料的RPA导入-永新、海力士、三星（已完成）
 3.下游战略储备客户标签统一管理，实现客户标签管理（测试中）</div>
-  <div class="mdp-blocker-detail"><strong>卡点：</strong>系统开发基于TSS保税仓，忽视特殊区域方案</div>
-</div><div class="mdp-kr">
-  <div class="mdp-kr-row" onclick="toggleMKR(this)">
-    <span class="mdp-arrow">▶</span>
-    <span class="o-badge">O2</span>
-    <span class="mdp-kr-name">CPQ报价结算标准化（新客户100%） <span class="mdp-blocker-tag">有卡点</span></span>
-    <span class="mdp-kr-prog" style="color:#5dade2">30%</span>
-    <span class="mdp-kr-meta">蔡嘉骏、何鹏喆、陈岑等11人 · 全国网点 · 超过目标日期38天</span>
-  </div>
-  <div class="mdp-desc ">网点性客户落实：北京-亦盛、新和、新耕；厦门-华加、増拓；成都：英特尔、嘉宏、中菲行、华润微电子，润西微电子；西安：道益静电、鼎鑫环保、上海腾见、深圳赛弥康；合肥：颀材、沛顿、日通；无锡：联邦。南京：拓邦微电子、卡尔蔡司
-东电的账单统一（进行中）</div>
-  <div class="mdp-blocker-detail"><strong>卡点：</strong>全国性客户的网点权限申请不清晰；CMS与CPQ未联通结算；一对1+多的客户结算存在问题；</div>
+  <div class="mdp-blocker-detail"><strong>关注项：</strong>系统开发基于TSS保税仓，忽视特殊区域方案</div>
 </div><div class="mdp-kr">
   <div class="mdp-kr-row" onclick="toggleMKR(this)">
     <span class="mdp-arrow">▶</span>
     <span class="o-badge">O4</span>
-    <span class="mdp-kr-name">每季度战略复盘会闭环率100% <span class="mdp-blocker-tag">有卡点</span></span>
+    <span class="mdp-kr-name">每季度战略复盘会闭环率100% <span class="mdp-blocker-tag">需关注</span></span>
     <span class="mdp-kr-prog" style="color:#5dade2">50%</span>
     <span class="mdp-kr-meta">熊海、崔健、蒋青等12人 · 全国网点 · 超过目标日期48天</span>
   </div>
   <div class="mdp-desc ">各个网点自行每两周一次的复盘会；网点全体的每周一次的进度更新会议和每月一次的复盘会。</div>
-  <div class="mdp-blocker-detail"><strong>卡点：</strong>管理人员在运营方面不重视，重心往往在客户层面</div>
-</div><div class="mdp-kr">
-  <div class="mdp-kr-row" onclick="toggleMKR(this)">
-    <span class="mdp-arrow">▶</span>
-    <span class="o-badge">O2</span>
-    <span class="mdp-kr-name">大订单标准化执行率100% <span class="mdp-blocker-tag">有卡点</span></span>
-    <span class="mdp-kr-prog" style="color:#aab7b8">未录入</span>
-    <span class="mdp-kr-meta">王志瑞、洪玲、吴邦尧等6人 · 全国网点 · 超过目标日期38天</span>
-  </div>
-  <div class="mdp-desc ">指令标准统一、并完成订单中台化：深圳、北京、大连；
-指令标准统一、部分完成订单中台化：合肥、南京；
-指令标准统一、订单中台化排期中：杭州、广州、厦门、成都、西安、无锡。</div>
-  <div class="mdp-blocker-detail"><strong>卡点：</strong>时效问题限制，急货的沟通；中台的资源</div>
+  <div class="mdp-blocker-detail"><strong>关注项：</strong>管理人员在运营方面不重视，重心往往在客户层面</div>
 </div></div>
 <div class="metric-detail-panel" id="mdp-stale"><div class="mdp-header">停滞KR（无进展描述或进度为0）（2项）</div><div class="mdp-kr">
   <div class="mdp-kr-row" onclick="toggleMKR(this)">
     <span class="mdp-arrow">▶</span>
     <span class="o-badge">O2</span>
-    <span class="mdp-kr-name">推广泓明订单标准 <span class="mdp-blocker-tag">有卡点</span></span>
+    <span class="mdp-kr-name">推广泓明订单标准 <span class="mdp-blocker-tag">需关注</span></span>
     <span class="mdp-kr-prog" style="color:#e57373">0%</span>
     <span class="mdp-kr-meta">洪玲、姜琳琳、孙美琳等4人 · 全国网点 · 超过目标日期7天</span>
   </div>
   <div class="mdp-desc empty">暂无进展描述</div>
-  <div class="mdp-blocker-detail"><strong>卡点：</strong>指令集中和指令统一进程开始比较晚；目标的共识不清晰、不主动</div>
+  <div class="mdp-blocker-detail"><strong>关注项：</strong>指令集中和指令统一进程开始比较晚；目标的共识不清晰、不主动</div>
 </div><div class="mdp-kr">
   <div class="mdp-kr-row" onclick="toggleMKR(this)">
     <span class="mdp-arrow">▶</span>
     <span class="o-badge">O3</span>
-    <span class="mdp-kr-name">服务类产品推广新增≥4家 <span class="mdp-blocker-tag">有卡点</span></span>
+    <span class="mdp-kr-name">服务类产品推广新增≥4家 <span class="mdp-blocker-tag">需关注</span></span>
     <span class="mdp-kr-prog" style="color:#e57373">0%</span>
     <span class="mdp-kr-meta">李云松 · 未设目标日期</span>
   </div>
   <div class="mdp-desc empty">暂无进展描述</div>
-  <div class="mdp-blocker-detail"><strong>卡点：</strong>推动乏力</div>
+  <div class="mdp-blocker-detail"><strong>关注项：</strong>推动乏力</div>
 </div></div>
 <div class="metric-detail-panel" id="mdp-untracked"><div class="mdp-header">未录入进度的KR（2项）</div><div class="mdp-kr">
   <div class="mdp-kr-row" onclick="toggleMKR(this)">
     <span class="mdp-arrow">▶</span>
-    <span class="o-badge">O2</span>
-    <span class="mdp-kr-name">大订单标准化执行率100% <span class="mdp-blocker-tag">有卡点</span></span>
-    <span class="mdp-kr-prog" style="color:#aab7b8">未录入</span>
-    <span class="mdp-kr-meta">王志瑞、洪玲、吴邦尧等6人 · 全国网点 · 超过目标日期38天</span>
-  </div>
-  <div class="mdp-desc ">指令标准统一、并完成订单中台化：深圳、北京、大连；
-指令标准统一、部分完成订单中台化：合肥、南京；
-指令标准统一、订单中台化排期中：杭州、广州、厦门、成都、西安、无锡。</div>
-  <div class="mdp-blocker-detail"><strong>卡点：</strong>时效问题限制，急货的沟通；中台的资源</div>
-</div><div class="mdp-kr">
-  <div class="mdp-kr-row" onclick="toggleMKR(this)">
-    <span class="mdp-arrow">▶</span>
     <span class="o-badge">O1</span>
-    <span class="mdp-kr-name">核心岗位覆盖率≥90% <span class="mdp-blocker-tag">有卡点</span></span>
+    <span class="mdp-kr-name">核心岗位覆盖率≥90% <span class="mdp-blocker-tag">需关注</span></span>
     <span class="mdp-kr-prog" style="color:#aab7b8">未录入</span>
     <span class="mdp-kr-meta">蒋青、李云松、戴厚芬等8人 · 全国网点 · 未设目标日期</span>
   </div>
@@ -743,7 +732,19 @@ EHS专家-张磊（培养中）
 南京：货代专家狄梦瑶（培养中），南京台积电项目对接王薇（培养中）
 成都：华虹驻厂、华虹项目负责：朱凤玲
 西安：贸易代理专家：何鹏喆</div>
-  <div class="mdp-blocker-detail"><strong>卡点：</strong>供需和培养</div>
+  <div class="mdp-blocker-detail"><strong>关注项：</strong>供需和培养</div>
+</div><div class="mdp-kr">
+  <div class="mdp-kr-row" onclick="toggleMKR(this)">
+    <span class="mdp-arrow">▶</span>
+    <span class="o-badge">O2</span>
+    <span class="mdp-kr-name">大订单标准化执行率100% <span class="mdp-blocker-tag">需关注</span></span>
+    <span class="mdp-kr-prog" style="color:#aab7b8">未录入</span>
+    <span class="mdp-kr-meta">王志瑞、洪玲、吴邦尧等6人 · 全国网点 · 超过目标日期38天</span>
+  </div>
+  <div class="mdp-desc ">指令标准统一、并完成订单中台化：深圳、北京、大连；
+指令标准统一、部分完成订单中台化：合肥、南京；
+指令标准统一、订单中台化排期中：杭州、广州、厦门、成都、西安、无锡。</div>
+  <div class="mdp-blocker-detail"><strong>关注项：</strong>时效问题限制，急货的沟通；中台的资源</div>
 </div></div>
 
 <div class="section" id="sec-compare">
@@ -858,14 +859,14 @@ OKR拆解对齐通过率100%" style="flex:1;background:#0f3460">1</div><div clas
 </div>
 
 <div class="section" id="sec-risk">
-  <h2>风险与关注事项</h2>
+  <h2>重点关注事项</h2>
   <div class="risk-grid" id="riskGrid"><div class="risk-card high">
   <div class="risk-title">6项KR已超过目标日期但未完成</div>
   <div class="risk-detail"><span class="kr-item">推广泓明订单标准(0%)</span><span class="kr-item">WMS/TMS/FMS/COS系统100%执行使用(50%)</span><span class="kr-item">输出≥2项区域业务洞察与优化建议(80%)</span><span class="kr-item">CPQ报价结算标准化（新客户100%）(30%)</span><span class="kr-item">每季度战略复盘会闭环率100%(50%)</span></div>
   <div class="risk-action"><strong>建议关注：</strong>建议了解各项超过目标日期KR的推进计划和时间安排，评估目标是否需要调整</div>
 </div><div class="risk-card high">
   <div class="risk-title">服务类产品推广新增≥4家 0%未开始</div>
-  <div class="risk-detail">卡点：推动乏力，1人跟进</div>
+  <div class="risk-detail">当前情况：推动乏力，1人跟进</div>
   <div class="risk-action"><strong>建议关注：</strong>建议关注此项的推进节奏，了解当前的资源安排和客户拓展计划</div>
 </div><div class="risk-card medium">
   <div class="risk-title">2项KR未录入进度值</div>
@@ -873,15 +874,15 @@ OKR拆解对齐通过率100%" style="flex:1;background:#0f3460">1</div><div clas
   <div class="risk-action"><strong>建议关注：</strong>建议了解进度数据缺失原因，评估数据追踪机制是否需要完善</div>
 </div><div class="risk-card medium">
   <div class="risk-title">国内采购场景标准化SOP（菲尼萨等） 30%</div>
-  <div class="risk-detail">卡点：资源配置和进度跟踪不及时</div>
+  <div class="risk-detail">当前情况：资源配置和进度跟踪不及时</div>
   <div class="risk-action"><strong>建议关注：</strong>建议了解当前的资源配置和推进计划</div>
 </div><div class="risk-card medium">
   <div class="risk-title">CPQ报价结算标准化（新客户100%） 30%（超过目标日期）</div>
-  <div class="risk-detail">卡点：全国性客户的网点权限申请不清晰；CMS与CPQ未联通结算；一对1+多的客户结算存在问题；</div>
+  <div class="risk-detail">当前情况：全国性客户的网点权限申请不清晰；CMS与CPQ未联通结算；一对1+多的客户结算存在问题；</div>
   <div class="risk-action"><strong>建议关注：</strong>建议了解当前的资源配置和推进计划</div>
 </div><div class="risk-card medium">
   <div class="risk-title">搬运服务场景标准化SOP 30%</div>
-  <div class="risk-detail">卡点：未记录</div>
+  <div class="risk-detail">当前情况：未记录</div>
   <div class="risk-action"><strong>建议关注：</strong>建议了解当前的资源配置和推进计划</div>
 </div></div>
 </div>
@@ -890,7 +891,7 @@ OKR拆解对齐通过率100%" style="flex:1;background:#0f3460">1</div><div clas
   <h2>关键结果明细 <small style="font-weight:400;color:#8898aa;font-size:12px;margin-left:8px">备查 · 点击行展开/收起关键结果描述</small></h2>
   <div class="filters" id="filters">
     <button class="filter-btn active" data-filter="all">全部 <span class="count" id="c-all">(20)</span></button>
-    <button class="filter-btn" data-filter="risk">风险项 <span class="count" id="c-risk">(9)</span></button>
+    <button class="filter-btn" data-filter="risk">需关注项 <span class="count" id="c-risk">(9)</span></button>
     <button class="filter-btn" data-filter="overdue">超过目标日期 <span class="count" id="c-overdue">(6)</span></button>
     <button class="filter-btn" data-filter="done">已达成 <span class="count" id="c-done">(1)</span></button>
     <button class="filter-btn" data-filter="untracked">未追踪 <span class="count" id="c-untracked">(2)</span></button>
@@ -906,7 +907,7 @@ OKR拆解对齐通过率100%" style="flex:1;background:#0f3460">1</div><div clas
           <th onclick="sortTable(3)">进度</th>
           <th onclick="sortTable(4)">状态</th>
           <th onclick="sortTable(5)">截止日</th>
-          <th onclick="sortTable(6)">卡点/风险</th>
+          <th onclick="sortTable(6)">关注项/风险</th>
         </tr>
       </thead>
       <tbody id="krBody"><tr class="kr-row" onclick="toggleDetail(0)">
@@ -1508,15 +1509,15 @@ EHS专家-张磊（培养中）
     <span class="fol-arrow">▶</span>O3 标准化产品复制（6项KR）
   </div>
   <div class="kr-fol-group-body"><div class="kr-follower-item">
-  <div class="kr-name"><span class="o-cell">O3</span> 国内采购场景标准化SOP（菲尼萨等） <span class="badge badge-red">风险</span></div>
+  <div class="kr-name"><span class="o-cell">O3</span> 国内采购场景标准化SOP（菲尼萨等） <span class="badge badge-orange">需关注</span></div>
   <div class="kr-prog" style="color:#5dade2">30%</div>
   <div class="kr-fol-list"><span class="follower-tag">何鹏喆</span><span class="follower-tag">王嘉晔</span><span class="follower-tag">俞晓燕</span></div>
 </div><div class="kr-follower-item">
-  <div class="kr-name"><span class="o-cell">O3</span> 服务类产品推广新增≥4家 <span class="badge badge-red">风险</span></div>
+  <div class="kr-name"><span class="o-cell">O3</span> 服务类产品推广新增≥4家 <span class="badge badge-orange">需关注</span></div>
   <div class="kr-prog" style="color:#e57373">0%</div>
   <div class="kr-fol-list"><span class="follower-tag">李云松</span></div>
 </div><div class="kr-follower-item">
-  <div class="kr-name"><span class="o-cell">O3</span> 搬运服务场景标准化SOP <span class="badge badge-red">风险</span></div>
+  <div class="kr-name"><span class="o-cell">O3</span> 搬运服务场景标准化SOP <span class="badge badge-orange">需关注</span></div>
   <div class="kr-prog" style="color:#5dade2">30%</div>
   <div class="kr-fol-list"><span class="follower-tag">吴承冰</span><span class="follower-tag">王文克</span></div>
 </div><div class="kr-follower-item">

@@ -26,7 +26,9 @@ import json
 import os
 import sys
 import glob
+import time
 import urllib.request
+import urllib.error
 from datetime import datetime, date, timedelta, timezone
 
 # ===== 配置 =====
@@ -76,32 +78,42 @@ KR_TITLES = {
 
 # ===== 钉钉API调用 =====
 
-def api_request(url, method='GET', headers=None, body=None):
-    """通用HTTP请求"""
+def api_request(url, method='GET', headers=None, body=None, timeout=30, retries=2):
+    """通用HTTP请求（含重试和超时容错）"""
     data = json.dumps(body).encode() if body else None
     hdrs = {'Content-Type': 'application/json'}
     if headers:
         hdrs.update(headers)
-    req = urllib.request.Request(url, data=data, headers=hdrs, method=method)
-    try:
-        resp = urllib.request.urlopen(req, timeout=30)
-        return json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        err_body = e.read().decode()
+    for attempt in range(retries + 1):
+        req = urllib.request.Request(url, data=data, headers=hdrs, method=method)
         try:
-            err_json = json.loads(err_body)
-            return err_json
-        except:
-            return {'error': err_body}
+            resp = urllib.request.urlopen(req, timeout=timeout)
+            return json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode()
+            try:
+                err_json = json.loads(err_body)
+                return err_json
+            except:
+                return {'error': err_body}
+        except (urllib.error.URLError, OSError, TimeoutError) as e:
+            if attempt < retries:
+                wait = 2 * (attempt + 1)
+                print(f'   请求失败（第{attempt+1}次），{wait}秒后重试: {e}', file=sys.stderr)
+                time.sleep(wait)
+            else:
+                print(f'   请求失败（已重试{retries}次）: {e}', file=sys.stderr)
+                return {'error': str(e)}
+    return {'error': 'unknown'}
 
 def get_access_token():
-    """获取企业内部应用accessToken"""
+    """获取企业内部应用accessToken。失败返回None（不sys.exit，让调用方决定是否致命）。"""
     url = 'https://api.dingtalk.com/v1.0/oauth2/accessToken'
     result = api_request(url, 'POST', body={'appKey': APP_KEY, 'appSecret': APP_SECRET})
     token = result.get('accessToken', '')
     if not token:
         print(f'获取token失败: {json.dumps(result, ensure_ascii=False)}', file=sys.stderr)
-        sys.exit(1)
+        return None
     return token
 
 def get_union_id(access_token, user_id):
@@ -1654,7 +1666,7 @@ def call_llm_insight(api_key, model, data_text):
     }
     headers = {'Authorization': f'Bearer {api_key}'}
     try:
-        resp = api_request(url, 'POST', headers=headers, body=body)
+        resp = api_request(url, 'POST', headers=headers, body=body, timeout=60, retries=1)
         if 'error' in resp or 'choices' not in resp:
             print(f'   AI洞察接口返回异常: {json.dumps(resp, ensure_ascii=False)[:200]}')
             return None
@@ -2069,6 +2081,9 @@ def main():
         # 1. 获取token
         print('1. 获取access token...')
         token = get_access_token()
+        if not token:
+            print(f'   错误：获取token失败（钉钉API不可用或凭证错误），脚本终止')
+            return
         print(f'   token获取成功')
 
         # 2. 获取unionId
@@ -2173,6 +2188,9 @@ def main():
         # 7. 获取token并发送钉钉消息（个人单聊 + 群）
         print('7. 获取access token...')
         token = get_access_token()
+        if not token:
+            print(f'   错误：获取token失败，无法发送钉钉消息')
+            return
         print('   token获取成功')
 
         print('8. 发送钉钉消息...')

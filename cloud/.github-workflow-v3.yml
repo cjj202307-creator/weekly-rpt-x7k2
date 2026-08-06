@@ -1,0 +1,88 @@
+name: OKR Weekly Report
+
+on:
+  schedule:
+    # 每周四 09:30 UTC = 北京时间 17:30
+    - cron: '30 9 * * 4'
+  workflow_dispatch:
+
+jobs:
+  okr-report:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Generate OKR Report
+        env:
+          DINGTALK_APP_KEY: ${{ secrets.DINGTALK_APP_KEY }}
+          DINGTALK_APP_SECRET: ${{ secrets.DINGTALK_APP_SECRET }}
+          DINGTALK_USER_ID: '17397552280041830'
+          REPORT_URL: ${{ vars.REPORT_URL }}
+        run: python cloud/okr_cloud_report.py --skip-send
+
+      - name: Deploy HTML to GitHub Pages
+        run: |
+          mkdir -p docs
+          cp cloud/okr-report.html docs/index.html
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/
+          git add data/snapshots/
+          git commit -m "Update OKR report HTML ($(date +%Y-%m-%d))" || echo "No changes to commit"
+          git push
+
+      - name: Wait for GitHub Pages deployment
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Waiting for GitHub Pages deployment..."
+          latest_sha=$(git rev-parse HEAD)
+          echo "Latest commit SHA: $latest_sha"
+          export LATEST_SHA="$latest_sha"
+          for i in {1..30}; do
+            resp=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${{ github.repository }}/pages/deployments?per_page=5")
+            status=$(echo "$resp" | python -c "
+import sys, json, os
+sha = os.environ.get('LATEST_SHA', '')
+deployments = json.load(sys.stdin)
+if not isinstance(deployments, list):
+    print('unknown')
+    sys.exit(0)
+for d in deployments:
+    if d.get('sha') == sha:
+        print(d.get('status', 'unknown'))
+        sys.exit(0)
+print('not_found')
+")
+            echo "Attempt $i: Pages deployment status = $status"
+            if [ "$status" = "success" ]; then
+              echo "Pages deployment succeeded"
+              exit 0
+            elif [ "$status" = "errored" ]; then
+              echo "Pages deployment failed"
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "Timeout waiting for Pages deployment"
+          exit 1
+
+      - name: Send OKR Report Notifications
+        env:
+          DINGTALK_APP_KEY: ${{ secrets.DINGTALK_APP_KEY }}
+          DINGTALK_APP_SECRET: ${{ secrets.DINGTALK_APP_SECRET }}
+          DINGTALK_USER_ID: '17397552280041830'
+          DINGTALK_GROUP_WEBHOOK: ${{ secrets.DINGTALK_GROUP_WEBHOOK }}
+          REPORT_URL: ${{ vars.REPORT_URL }}
+        run: python cloud/okr_cloud_report.py --send-only

@@ -8,6 +8,7 @@
   DINGTALK_APP_SECRET - 钉钉应用AppSecret
   DINGTALK_USER_ID    - 接收人userId（默认：17397552280041830）
   REPORT_URL          - 报告URL（必填，无URL拒绝发送避免重复/无链接推送）
+  DINGTALK_GROUP_WEBHOOK - 钉钉群机器人webhook地址（可选；配置后额外推送到群，与个人推送并存）
 
 需要的应用权限（在钉钉开发者后台申请）：
   1. Notable.Base.Read.All  - AI表格应用读权限
@@ -33,6 +34,7 @@ APP_KEY = os.environ.get('DINGTALK_APP_KEY', '')
 APP_SECRET = os.environ.get('DINGTALK_APP_SECRET', '')
 USER_ID = os.environ.get('DINGTALK_USER_ID', '17397552280041830')
 REPORT_URL = os.environ.get('REPORT_URL', '')  # 报告URL（GitHub Pages或CloudStudio）
+GROUP_WEBHOOK = os.environ.get('DINGTALK_GROUP_WEBHOOK', '')  # 钉钉群机器人webhook（推群，可选）
 ROBOT_CODE = APP_KEY  # AppKey即robotCode
 BASE_ID = 'EpGBa2Lm8azv7rn5uEONbq3rWgN7R35y'
 TABLE_ID = '77lhl1x'
@@ -141,6 +143,26 @@ def send_robot_message(access_token, title, markdown_text):
         'msgParam': msg_param
     }
     result = api_request(url, 'POST', headers=headers, body=body)
+    return result
+
+
+def send_group_message(webhook, title, markdown_text):
+    """通过钉钉群自定义机器人webhook发送Markdown消息到群（无安全验证方式）
+
+    与个人单聊推送并存：配置了 DINGTALK_GROUP_WEBHOOK 时额外推送到群。
+    """
+    if not webhook:
+        print('   未配置 DINGTALK_GROUP_WEBHOOK，跳过群推送')
+        return None
+    body = {
+        'msgtype': 'markdown',
+        'markdown': {'title': title, 'text': markdown_text}
+    }
+    try:
+        result = api_request(webhook, 'POST', headers={'Content-Type': 'application/json'}, body=body)
+    except Exception as e:
+        print(f'   群推送请求异常: {e}')
+        return None
     return result
 
 # ===== 数据处理 =====
@@ -1972,14 +1994,27 @@ def main():
     md = generate_markdown(a, today_str, report_url=REPORT_URL, week_str=week_str, comparison=comparison)
     print(f'   报告URL: {REPORT_URL}')
 
-    # 7. 发送机器人消息
-    print('7. 发送钉钉机器人消息...')
+    # 7. 发送钉钉消息（个人单聊 + 群）
+    print('7. 发送钉钉消息...')
     msg_title = f'全国网点OKR推进周报 {week_str}（{today_str}）'
+
+    # 7.1 个人单聊推送
+    print('   7.1 发送给个人（单聊）...')
     result = send_robot_message(token, msg_title, md)
     if result.get('processQueryKey'):
-        print(f'   发送成功！标题：{msg_title}')
+        print(f'   个人发送成功！标题：{msg_title}')
     else:
-        print(f'   发送失败: {json.dumps(result, ensure_ascii=False)}')
+        print(f'   个人发送失败: {json.dumps(result, ensure_ascii=False)}')
+
+    # 7.2 群推送（配置 webhook 时生效）
+    print('   7.2 推送到群...')
+    gresult = send_group_message(GROUP_WEBHOOK, msg_title, md)
+    if gresult is None:
+        print('   群推送跳过（未配置 DINGTALK_GROUP_WEBHOOK）')
+    elif gresult.get('errcode') == 0:
+        print(f'   群发送成功！标题：{msg_title}')
+    else:
+        print(f'   群发送失败: {json.dumps(gresult, ensure_ascii=False)}')
 
     print(f'[{datetime.now().isoformat()}] 完成')
 

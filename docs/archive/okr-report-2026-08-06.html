@@ -186,6 +186,14 @@ html { scroll-behavior: smooth; }
 .topnav a:hover { background: #e3f2fd; color: #1a5f9e; }
 .topnav a.nav-highlight { background: linear-gradient(135deg, #1a1a2e 0%, #0f3460 100%); color: #fff; font-weight: 600; box-shadow: 0 2px 6px rgba(26,26,46,0.2); }
 .topnav a.nav-highlight:hover { background: linear-gradient(135deg, #3498db 0%, #1a5f9e 100%); }
+/* 历史周报板块 */
+.history-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-top: 6px; }
+.history-card { display: block; text-decoration: none; background: linear-gradient(135deg, #f8f9fc 0%, #eef2f8 100%); border: 1px solid #e3e8f0; border-left: 4px solid #3498db; border-radius: 10px; padding: 16px 18px; color: #1a1a2e; transition: all 0.2s; }
+.history-card:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(26,26,46,0.12); border-left-color: #1a5f9e; background: linear-gradient(135deg, #eef4fb 0%, #e3f2fd 100%); }
+.history-date { font-size: 16px; font-weight: 800; color: #0f3460; }
+.history-week { font-size: 12px; color: #8898aa; margin-top: 4px; }
+.history-all { display: inline-block; margin-top: 16px; padding: 10px 22px; background: linear-gradient(135deg, #1a1a2e 0%, #0f3460 100%); color: #fff; text-decoration: none; border-radius: 8px; font-size: 13px; font-weight: 600; box-shadow: 0 2px 8px rgba(26,26,46,0.2); transition: all 0.2s; }
+.history-all:hover { background: linear-gradient(135deg, #3498db 0%, #1a5f9e 100%); }
 @media (max-width: 768px) {
   .topnav { padding: 8px 10px; }
   .topnav a { padding: 5px 10px; font-size: 12px; }
@@ -305,6 +313,7 @@ html { scroll-behavior: smooth; }
   <a href="#sec-detail" class="nav-highlight">KR明细</a>
   <a href="#sec-followers" class="nav-highlight">跟进人</a>
   <a href="#sec-dq" class="nav-highlight">数据质量</a>
+  <a href="#sec-history" class="nav-highlight">历史</a>
 </nav>
 
 <div class="exec-summary" id="sec-summary">
@@ -1541,6 +1550,12 @@ EHS专家-张磊（培养中）
 <div class="section" id="sec-dq">
   <h2>数据质量提醒</h2>
   <ul class="dq-list" id="dqList"><li class="dq-red">2项KR未录入推进进度值<div class="dq-items"><span class="kr-item">大订单标准化执行率100%</span><span class="kr-item">核心岗位覆盖率≥90%</span></div></li><li class="">3项KR未标注完成状态<div class="dq-items"><span class="kr-item">区域唯一码颗粒度定义与覆盖率100%</span><span class="kr-item">核心岗位覆盖率≥90%</span><span class="kr-item">每季度收集卡点≥3条</span></div></li><li class="dq-red">6项KR已超过目标日期但未完成<div class="dq-items"><span class="kr-item">推广泓明订单标准</span><span class="kr-item">WMS/TMS/FMS/COS系统100%执行使用</span><span class="kr-item">输出≥2项区域业务洞察与优化建议</span><span class="kr-item">CPQ报价结算标准化（新客户100%）</span><span class="kr-item">每季度战略复盘会闭环率100%</span><span class="kr-item">大订单标准化执行率100%</span></div></li></ul>
+</div>
+
+<div class="section" id="sec-history">
+  <h2>历史周报</h2>
+  <p style="font-size:13px;color:#8898aa;margin:-6px 0 14px">往期报告存档，点击查看完整内容</p>
+  <div class="history-grid"><a class="history-card" href="archive/okr-report-2026-08-06.html"><div class="history-date">2026-08-06</div><div class="history-week">W32</div></a></div><a class="history-all" href="archive/index.html">查看全部历史周报 →</a>
 </div>
 
 <div class="footer">

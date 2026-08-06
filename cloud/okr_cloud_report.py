@@ -36,8 +36,8 @@ USER_ID = os.environ.get('DINGTALK_USER_ID', '17397552280041830')
 REPORT_URL = os.environ.get('REPORT_URL', '')  # 报告URL（GitHub Pages或CloudStudio）
 GROUP_WEBHOOK = os.environ.get('DINGTALK_GROUP_WEBHOOK', '')  # 钉钉群机器人webhook（推群，可选）
 GROUP_WEBHOOK_SITE_DIGITAL = os.environ.get('DINGTALK_GROUP_WEBHOOK_SITE_DIGITAL', '')  # 第二个群：网点数字化
-LLM_API_KEY = os.environ.get('DASHSCOPE_API_KEY', '')  # 通义千问 DashScope API Key（AI洞察用，可选；不配置则跳过）
-LLM_MODEL = os.environ.get('LLM_MODEL') or 'qwen-plus'    # 模型名，默认 qwen-plus（空字符串也回退到默认值）
+LLM_API_KEY = os.environ.get('DASHSCOPE_API_KEY', '')  # DeepSeek API Key（AI洞察用，可选；不配置则跳过。环境变量名沿用DASHSCOPE_API_KEY，workflow无需改）
+LLM_MODEL = os.environ.get('LLM_MODEL') or 'deepseek-chat'    # 模型名，默认 deepseek-chat（空字符串也回退到默认值）
 ROBOT_CODE = APP_KEY  # AppKey即robotCode
 BASE_ID = 'EpGBa2Lm8azv7rn5uEONbq3rWgN7R35y'
 TABLE_ID = '77lhl1x'
@@ -1622,10 +1622,10 @@ def build_data_summary_text(a, comparison=None):
 
 
 def call_llm_insight(api_key, model, data_text):
-    """调用通义千问 DashScope（OpenAI兼容）生成管理层洞察。返回 dict 或 None（失败兜底）。"""
+    """调用 DeepSeek（OpenAI兼容）生成管理层洞察。返回 dict 或 None（失败兜底）。"""
     if not api_key:
         return None
-    url = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions'
+    url = 'https://api.deepseek.com/chat/completions'
     system = (
         '你是集团总经理的AI战略助手。基于提供的OKR推进数据，输出面向管理层的洞察。'
         '要求：① 用简体中文；② 客观、口语化、可直接给总经理看；③ 不虚构数据中不存在的内容；'

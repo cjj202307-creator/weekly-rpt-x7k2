@@ -754,6 +754,14 @@ html { scroll-behavior: smooth; }
 .topnav a:hover { background: #e3f2fd; color: #1a5f9e; }
 .topnav a.nav-highlight { background: linear-gradient(135deg, #1a1a2e 0%, #0f3460 100%); color: #fff; font-weight: 600; box-shadow: 0 2px 6px rgba(26,26,46,0.2); }
 .topnav a.nav-highlight:hover { background: linear-gradient(135deg, #3498db 0%, #1a5f9e 100%); }
+/* 历史周报板块 */
+.history-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-top: 6px; }
+.history-card { display: block; text-decoration: none; background: linear-gradient(135deg, #f8f9fc 0%, #eef2f8 100%); border: 1px solid #e3e8f0; border-left: 4px solid #3498db; border-radius: 10px; padding: 16px 18px; color: #1a1a2e; transition: all 0.2s; }
+.history-card:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(26,26,46,0.12); border-left-color: #1a5f9e; background: linear-gradient(135deg, #eef4fb 0%, #e3f2fd 100%); }
+.history-date { font-size: 16px; font-weight: 800; color: #0f3460; }
+.history-week { font-size: 12px; color: #8898aa; margin-top: 4px; }
+.history-all { display: inline-block; margin-top: 16px; padding: 10px 22px; background: linear-gradient(135deg, #1a1a2e 0%, #0f3460 100%); color: #fff; text-decoration: none; border-radius: 8px; font-size: 13px; font-weight: 600; box-shadow: 0 2px 8px rgba(26,26,46,0.2); transition: all 0.2s; }
+.history-all:hover { background: linear-gradient(135deg, #3498db 0%, #1a5f9e 100%); }
 @media (max-width: 768px) {
   .topnav { padding: 8px 10px; }
   .topnav a { padding: 5px 10px; font-size: 12px; }
@@ -1608,6 +1616,7 @@ def generate_html(a, today_str, week_str='', comparison=None):
     kr_follower_html = _gen_kr_followers(krs, a)
     risk_cards_html = _gen_risk_cards_html(risk_cards[:6])
     dq_html = _gen_dq_html(dq_items)
+    history_html = _gen_history_section()
 
     c_all = len(krs)
     c_risk = len([k for k in krs if a['is_risk'](k)])
@@ -1655,6 +1664,7 @@ def generate_html(a, today_str, week_str='', comparison=None):
   <a href="#sec-detail" class="nav-highlight">KR明细</a>
   <a href="#sec-followers" class="nav-highlight">跟进人</a>
   <a href="#sec-dq" class="nav-highlight">数据质量</a>
+  <a href="#sec-history" class="nav-highlight">历史</a>
 </nav>
 
 <div class="exec-summary" id="sec-summary">
@@ -1761,6 +1771,12 @@ def generate_html(a, today_str, week_str='', comparison=None):
   <ul class="dq-list" id="dqList">{dq_html}</ul>
 </div>
 
+<div class="section" id="sec-history">
+  <h2>历史周报</h2>
+  <p style="font-size:13px;color:#8898aa;margin:-6px 0 14px">往期报告存档，点击查看完整内容</p>
+  {history_html}
+</div>
+
 <div class="footer">
   <p>数据来源：<a href="https://docs.dingtalk.com/i/nodes/EpGBa2Lm8azv7rn5uEONbq3rWgN7R35y?iframeQuery=sheetId%3D77lhl1x" target="_blank">协同待办事项表 · 网点OKR推进</a></p>
   <p>生成时间：{today_str}{title_week} · 云端自动生成</p>
@@ -1780,6 +1796,39 @@ updateFilterCounts();
     return html
 
 # ===== 主流程 =====
+
+def _gen_history_section():
+    """扫描 docs/archive/ 目录，生成历史周报链接板块（内嵌于报告末尾）"""
+    archive_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'docs', 'archive')
+    files = []
+    if os.path.isdir(archive_dir):
+        for name in os.listdir(archive_dir):
+            if name.startswith('okr-report-') and name.endswith('.html') and name != 'index.html':
+                d = name.replace('okr-report-', '').replace('.html', '')
+                try:
+                    dt = datetime.strptime(d, '%Y-%m-%d')
+                    week = get_iso_week(dt.date())
+                except Exception:
+                    week = ''
+                files.append((d, name, week))
+    files.sort(key=lambda x: x[0], reverse=True)  # 最新在前
+
+    if not files:
+        return '<div class="empty-state">暂无历史周报（本周为首次生成，下周起自动累积）</div>'
+
+    cards = []
+    for d, name, week in files[:12]:  # 最多显示最近12期
+        week_badge = f'<div class="history-week">{week}</div>' if week else ''
+        cards.append(f'<a class="history-card" href="archive/{name}"><div class="history-date">{d}</div>{week_badge}</a>')
+    cards_html = ''.join(cards)
+
+    more = ''
+    if len(files) > 12:
+        more = f'<div style="margin-top:12px;font-size:12px;color:#8898aa">仅显示最近 12 期，共 {len(files)} 期</div>'
+    all_link = '<a class="history-all" href="archive/index.html">查看全部历史周报 →</a>'
+
+    return f'<div class="history-grid">{cards_html}</div>{more}{all_link}'
+
 
 def _gen_archive_index(archive_dir):
     """生成归档索引页，列出所有历史报告，方便回看"""

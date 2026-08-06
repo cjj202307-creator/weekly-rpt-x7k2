@@ -36,6 +36,8 @@ USER_ID = os.environ.get('DINGTALK_USER_ID', '17397552280041830')
 REPORT_URL = os.environ.get('REPORT_URL', '')  # 报告URL（GitHub Pages或CloudStudio）
 GROUP_WEBHOOK = os.environ.get('DINGTALK_GROUP_WEBHOOK', '')  # 钉钉群机器人webhook（推群，可选）
 GROUP_WEBHOOK_SITE_DIGITAL = os.environ.get('DINGTALK_GROUP_WEBHOOK_SITE_DIGITAL', '')  # 第二个群：网点数字化
+LLM_API_KEY = os.environ.get('DASHSCOPE_API_KEY', '')  # 通义千问 DashScope API Key（AI洞察用，可选；不配置则跳过）
+LLM_MODEL = os.environ.get('LLM_MODEL', 'qwen-plus')    # 模型名，默认 qwen-plus（可在 GitHub Variables 覆盖）
 ROBOT_CODE = APP_KEY  # AppKey即robotCode
 BASE_ID = 'EpGBa2Lm8azv7rn5uEONbq3rWgN7R35y'
 TABLE_ID = '77lhl1x'
@@ -650,6 +652,13 @@ body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; ba
 .metric-card.gray .num { color: #aab7b8; }
 .metric-card.dark .num { color: #1a1a2e; }
 .section { background: #fff; border-radius: 14px; padding: 26px 34px; margin-bottom: 18px; box-shadow: 0 4px 16px rgba(0,0,0,0.06); border: 1px solid rgba(0,0,0,0.03); }
+.ai-insight { border-left: 4px solid #1a5f9e; background: linear-gradient(135deg, #f5f9ff 0%, #eef4fb 100%); }
+.ai-summary { font-size: 15px; line-height: 1.8; color: #1a1a2e; margin: 10px 0 16px; padding: 14px 18px; background: #fff; border-radius: 10px; box-shadow: 0 2px 8px rgba(26,95,158,0.08); }
+.ai-block { margin-bottom: 12px; }
+.ai-block-title { font-size: 14px; font-weight: 700; color: #1a5f9e; margin-bottom: 6px; }
+.ai-block ul { margin: 0; padding-left: 20px; }
+.ai-block li { font-size: 13px; line-height: 1.7; color: #334; margin-bottom: 4px; }
+.ai-note { font-size: 11px; color: #8898aa; margin-top: 10px; padding-top: 8px; border-top: 1px dashed rgba(0,0,0,0.08); }
 .section h2 { font-size: 17px; font-weight: 700; color: #1a1a2e; margin-bottom: 18px; padding-bottom: 10px; border-bottom: 2px solid #f0f0f0; }
 .o-chart { display: flex; flex-direction: column; gap: 14px; }
 .o-bar-row { display: flex; align-items: center; gap: 12px; }
@@ -1574,7 +1583,105 @@ def _gen_o_bar_chart(a, comparison):
 </div>''')
     return ''.join(bars)
 
-def generate_html(a, today_str, week_str='', comparison=None):
+# ===== AI 管理层洞察（通义千问 DashScope，OpenAI 兼容接口）=====
+
+def build_data_summary_text(a, comparison=None):
+    """构造给大模型的精简数据摘要（结构化、不泄露密钥）。失败也不影响主流程。"""
+    krs = a['krs']
+    o_map_rev = {v[0]: v[1] for v in O_MAP.values()}
+    o_prog = {}
+    for k in krs:
+        o_prog.setdefault(k['o'], []).append(k.get('progress') or 0)
+    lines = []
+    lines.append('集团四大战略目标OKR推进数据（分析时点快照）：')
+    lines.append(f'- 整体平均进度：{a["overall_avg"]}%')
+    lines.append(f'- KR总数：{len(krs)}项；本周有进展：{a["updated_count"]}项；已达成：{a["done_count"]}项；停滞：{a["stale_count"]}项；超过目标日期未完成：{a["overdue_count"]}项；未追踪：{a["untracked_count"]}项')
+    for o in sorted(o_prog.keys(), key=lambda x: int(''.join(ch for ch in x if ch.isdigit()) or 0)):
+        ps = o_prog[o]
+        avg = round(sum(ps) / len(ps)) if ps else 0
+        lines.append(f'- {o} {o_map_rev.get(o, "")}：平均进度 {avg}%')
+    concerns = []
+    for k in krs:
+        if a['is_risk'](k) or a['is_overdue'](k):
+            fol = '、'.join(f.get('name', '') for f in k.get('followers', []) if f.get('name')) or '未指定'
+            blk = (k.get('blocker') or '').strip()
+            concerns.append(f'  · {k["o"]} {k["kr"]}（进度{k.get("progress") or 0}%，跟进人{fol}）{("卡点："+blk) if blk else ""}')
+    if concerns:
+        lines.append('- 需重点关注KR（风险或超目标日期）：')
+        lines.extend(concerns[:10])
+    if comparison:
+        lines.append(f'- 周环比（较{comparison["prev_week"]}）：平均进度变化{comparison["overall_avg_delta"]:+}%，新增进展{len(comparison["truly_updated"])}项')
+    return '\n'.join(lines)
+
+
+def call_llm_insight(api_key, model, data_text):
+    """调用通义千问 DashScope（OpenAI兼容）生成管理层洞察。返回 dict 或 None（失败兜底）。"""
+    if not api_key:
+        return None
+    url = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions'
+    system = (
+        '你是集团总经理的AI战略助手。基于提供的OKR推进数据，输出面向管理层的洞察。'
+        '要求：① 用简体中文；② 客观、口语化、可直接给总经理看；③ 不虚构数据中不存在的内容；'
+        '④ 严格只输出JSON，格式：'
+        '{"summary":"一段60-100字的管理层白话摘要，概括整体态势与重点",'
+        '"risks":["关键风险点1","关键风险点2"],'
+        '"actions":["需要谁在什么节点前推进什么的具体建议1","建议2"]}'
+    )
+    user = f'以下是本周OKR推进数据摘要：\n{data_text}\n\n请输出上述JSON。'
+    body = {
+        'model': model,
+        'messages': [
+            {'role': 'system', 'content': system},
+            {'role': 'user', 'content': user},
+        ],
+        'response_format': {'type': 'json_object'},
+        'temperature': 0.3,
+        'max_tokens': 900,
+    }
+    headers = {'Authorization': f'Bearer {api_key}'}
+    try:
+        resp = api_request(url, 'POST', headers=headers, body=body)
+        if 'error' in resp or 'choices' not in resp:
+            print(f'   AI洞察接口返回异常: {json.dumps(resp, ensure_ascii=False)[:200]}')
+            return None
+        content = resp['choices'][0]['message']['content']
+        insight = json.loads(content)
+        if not isinstance(insight, dict) or 'summary' not in insight:
+            return None
+        insight.setdefault('risks', [])
+        insight.setdefault('actions', [])
+        return insight
+    except Exception as e:
+        print(f'   AI洞察生成失败（跳过，不影响报告）: {e}')
+        return None
+
+
+def _gen_ai_insight_html(insight):
+    """渲染AI洞察板块；无 insight 时返回空字符串（不显示板块）。"""
+    if not insight:
+        return ''
+    summary = (insight.get('summary') or '').strip()
+    risks = insight.get('risks') or []
+    actions = insight.get('actions') or []
+    parts = ['<div class="section ai-insight" id="sec-ai">', '  <h2>AI 管理层洞察</h2>']
+    if summary:
+        parts.append(f'  <div class="ai-summary">{_esc(summary)}</div>')
+    if risks:
+        parts.append('  <div class="ai-block"><div class="ai-block-title">⚠️ 关键风险</div><ul>')
+        for r in risks[:5]:
+            parts.append(f'    <li>{_esc(r)}</li>')
+        parts.append('  </ul></div>')
+    if actions:
+        parts.append('  <div class="ai-block"><div class="ai-block-title">✅ 行动建议</div><ul>')
+        for ac in actions[:6]:
+            parts.append(f'    <li>{_esc(ac)}</li>')
+        parts.append('  </ul></div>')
+    parts.append('  <div class="ai-note">本板块由 AI（通义千问）基于表格数据自动生成，仅供参考，请以最新实际进展为准。</div>')
+    parts.append('</div>')
+    return '\n'.join(parts)
+
+
+def generate_html(a, today_str, week_str='', comparison=None, ai_insight=None):
     """生成GM视角HTML报告（本周进展亮点置顶，服务端渲染+JS增强交互）"""
     krs = sorted(a['krs'], key=_o_sort_key)
     # 分析时间（北京时间 UTC+8），用于说明本报告对应的表格快照时刻
@@ -1661,6 +1768,7 @@ def generate_html(a, today_str, week_str='', comparison=None):
     # 服务端渲染各板块
     dist_chart_html = _gen_dist_chart(krs)
     comparison_html = _gen_comparison_html(a, comparison)
+    ai_html = _gen_ai_insight_html(ai_insight)
     status_donut_html = _gen_status_donut(krs, a)
     o_bar_chart_html = _gen_o_bar_chart(a, comparison)
     metric_panels = _gen_metric_panels(krs, a, comparison=comparison)
@@ -1713,6 +1821,7 @@ def generate_html(a, today_str, week_str='', comparison=None):
 
 <nav class="topnav">
   <a href="#sec-summary" class="nav-highlight">本周概况</a>
+  <a href="#sec-ai" class="nav-highlight">AI洞察</a>
   <a href="#sec-metrics" class="nav-highlight">指标</a>
   <a href="#sec-compare" class="nav-highlight">周环比</a>
   <a href="#sec-ochart" class="nav-highlight">进度可视化</a>
@@ -1733,6 +1842,8 @@ def generate_html(a, today_str, week_str='', comparison=None):
   <div class="preview-hint">点击下方指标卡可展开对应KR明细 · 点击KR行可查看进展描述全文</div>
   <div class="snapshot-note">本报告数据对应分析时间（{analysis_time}）的表格快照，如后续表格有更新，数字以最新一期周报为准。</div>
 </div>
+
+{ai_html}
 
 <div class="metrics" id="sec-metrics">
   <div class="metric-card dark clickable" data-metric="avg" onclick="toggleMetricDetail('avg')">
@@ -1988,8 +2099,21 @@ def main():
             print('   无历史快照，本周为首周基准')
 
         # 5. 生成HTML报告
+        # 5.0 生成 AI 洞察（可选：配置 DASHSCOPE_API_KEY 后生效）
+        ai_insight = None
+        if LLM_API_KEY:
+            print('5.0 生成AI洞察...')
+            data_text = build_data_summary_text(a, comparison)
+            ai_insight = call_llm_insight(LLM_API_KEY, LLM_MODEL, data_text)
+            if ai_insight:
+                print('   AI洞察生成成功')
+            else:
+                print('   AI洞察未生成（接口异常，使用规则报告，不影响主流程）')
+        else:
+            print('5.0 跳过AI洞察（未配置 DASHSCOPE_API_KEY）')
+
         print('5. 生成HTML报告...')
-        html = generate_html(a, today_str, week_str, comparison=comparison)
+        html = generate_html(a, today_str, week_str, comparison=comparison, ai_insight=ai_insight)
         html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'okr-report.html')
         with open(html_path, 'w', encoding='utf-8') as f:
             f.write(html)

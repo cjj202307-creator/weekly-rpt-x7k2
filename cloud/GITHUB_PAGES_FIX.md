@@ -5,21 +5,22 @@
 - ✅ GitHub Pages 链接已可用：`https://cjj202307-creator.github.io/weekly-rpt-x7k2/`
 - ✅ 工作流已在正确路径 `.github/workflows/okr-weekly.yml`
 - ✅ `cloud/okr_cloud_report.py` 已推送（最新版：统一色调 + 周环比 + 环形图/条形图 + 可折叠 + HTML历史归档 + 分析时间 + 按O排序 + 先部署后发送）
-- ⚠️ 工作流文件需要手动更新为 **v4 版本**（修复 v3 的 YAML 语法错误）
+- ⚠️ 工作流文件需要手动更新为 **v4 最终版**（修复「等待 Pages 部署」逻辑：不再轮询 `pages/deployments` API，改为轮询线上 URL）
 - ⚠️ 需要把 cron 改成周四 17:30（`30 9 * * 4`）
 - ⚠️ 需要新增 Secret `DINGTALK_GROUP_WEBHOOK` 才能群推送
 
 ---
 
-## 重要：v3 工作流为什么失败
+## 重要：前面几次为什么失败
 
-v3 版 workflow 里把等待 Pages 部署的脚本直接写在了 workflow 的 `run:` 步骤中，包含一段 inline Python heredoc。这段代码的缩进导致了 **YAML 语法错误**，所以：
+**第 1 次（v3）：YAML 语法错误**
+v3 把等待脚本直接写进 workflow 的 `run:` 里，含一段 inline Python heredoc，缩进破坏了 YAML → workflow 一触发就失败、连 "Run workflow" 按钮都不显示。
 
-- workflow run 一触发就失败（jobs 为空）
-- GitHub Actions 页面上**没有显示 "Run workflow" 按钮**
-- Pages 部署也被连带取消
+**第 2 次（v4 初版）：`pages/deployments` API 返回 404**
+v4 初版把等待逻辑抽到 `cloud/wait_for_pages.py`，但它去轮询 `GET /repos/{repo}/pages/deployments`。
+**这个接口只对「GitHub Actions 部署」模式生效；本仓库 Pages 是「从分支部署」（push 到 main 后 GitHub 自动构建），该接口永远返回 404**，于是脚本一直拿不到列表 → `invalid response` → 超时退出 1（日志里那一大片 `HTTP 404` 就是它在不停撞这个不存在的接口）。
 
-**v4 已修复**：把等待逻辑抽到了独立的 `cloud/wait_for_pages.py` 文件中，workflow 只调用一行命令，不再出现 inline heredoc 缩进问题。
+**v4 最终版已修复**：不再调用部署 API，改为**直接轮询线上报告 URL**——把刚生成的本地 HTML 作为基准，等线上页面内容真的变成这次报告（含相同的「分析时间」标记）为止，才发送钉钉消息。
 
 ---
 
@@ -71,13 +72,11 @@ jobs:
           git commit -m "Update OKR report HTML ($(date +%Y-%m-%d))" || echo "No changes to commit"
           git push
 
-      - name: Wait for GitHub Pages deployment
+      - name: Wait for GitHub Pages to serve new report
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-        run: |
-          latest_sha=$(git rev-parse HEAD)
-          python cloud/wait_for_pages.py "$REPO" "$latest_sha"
+          REPORT_URL: ${{ vars.REPORT_URL }}
+          LOCAL_HTML: cloud/okr-report.html
+        run: python cloud/wait_for_pages.py
 
       - name: Send OKR Report Notifications
         env:
@@ -91,12 +90,13 @@ jobs:
 
 4. 点 **Commit changes**
 
-> **v4 关键变化**：
+> **v4 最终版关键变化**：
 > 1. 修正 v3 的 YAML 语法错误（inline Python heredoc 缩进问题）
-> 2. 等待 Pages 部署的逻辑放到 `cloud/wait_for_pages.py`，workflow 只调用一行命令
-> 3. 顺序：生成报告 → 推送到仓库 → **等待 Pages 部署成功** → 发送钉钉消息
-> 4. cron 改为周四 09:30 UTC = 北京时间 17:30
-> 5. 增加 `DINGTALK_GROUP_WEBHOOK` Secret 用于群推送
+> 2. 等待逻辑放到 `cloud/wait_for_pages.py`，workflow 只调用一行命令
+> 3. **不再轮询 `pages/deployments` API**（分支部署模式它恒返回 404）；改为轮询线上报告 URL，等页面内容变成最新报告（含相同分析时间标记）才发送
+> 4. 顺序：生成报告 → 推送到仓库 → **等待线上页面生效** → 发送钉钉消息
+> 5. cron 改为周四 09:30 UTC = 北京时间 17:30
+> 6. 增加 `DINGTALK_GROUP_WEBHOOK` Secret 用于群推送
 
 ---
 
@@ -137,7 +137,7 @@ jobs:
 5. 等待运行完成，日志应依次显示：
    - `Generate OKR Report`：生成 HTML
    - `Deploy HTML to GitHub Pages`：推送到仓库
-   - `Wait for GitHub Pages deployment`：轮询直到 `Pages deployment succeeded`
+   - `Wait for GitHub Pages to serve new report`：轮询线上 URL，直到 `成功（线上页面已是最新报告）`
    - `Send OKR Report Notifications`：个人 + 群消息发送成功
 
 验证成功后，**每周四 17:30 自动执行**，无需开电脑。

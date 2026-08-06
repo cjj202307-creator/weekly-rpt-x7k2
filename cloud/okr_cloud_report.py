@@ -2001,8 +2001,10 @@ def main():
             archive_dir = os.path.join(repo_root, 'docs', 'archive')
             os.makedirs(archive_dir, exist_ok=True)
             archive_path = os.path.join(archive_dir, f'okr-report-{today_str}.html')
+            # 归档文件位于 docs/archive/ 子目录，资源相对路径需指向上一级 docs/
+            archive_html = html.replace('src="assets/hmg-logo.png"', 'src="../assets/hmg-logo.png"')
             with open(archive_path, 'w', encoding='utf-8') as f:
-                f.write(html)
+                f.write(archive_html)
             print(f'   归档HTML已保存: {archive_path}')
             _gen_archive_index(archive_dir)
             print(f'   归档索引已更新')

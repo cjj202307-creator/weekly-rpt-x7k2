@@ -24,6 +24,7 @@
 import json
 import os
 import sys
+import glob
 import urllib.request
 from datetime import datetime, date
 
@@ -1780,6 +1781,49 @@ updateFilterCounts();
 
 # ===== 主流程 =====
 
+def _gen_archive_index(archive_dir):
+    """生成归档索引页，列出所有历史报告，方便回看"""
+    files = []
+    for name in os.listdir(archive_dir):
+        if name.startswith('okr-report-') and name.endswith('.html'):
+            d = name.replace('okr-report-', '').replace('.html', '')
+            files.append((d, name))
+    files.sort(reverse=True)  # 最新在前
+
+    items = []
+    for d, name in files:
+        items.append(f'    <li><a href="./{name}">{d}</a></li>')
+
+    index_html = f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OKR周报历史归档</title>
+<style>
+  body {{ font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #f5f6fa; color: #1a1a2e; max-width: 720px; margin: 40px auto; padding: 0 20px; }}
+  h1 {{ font-size: 22px; color: #0f3460; }}
+  ul {{ list-style: none; padding: 0; }}
+  li {{ padding: 12px 16px; background: #fff; margin-bottom: 8px; border-radius: 8px; border-left: 4px solid #3498db; }}
+  a {{ color: #1a5f9e; text-decoration: none; font-weight: 600; }}
+  a:hover {{ text-decoration: underline; }}
+  .back {{ margin-top: 24px; }}
+  .back a {{ color: #3498db; }}
+</style>
+</head>
+<body>
+  <h1>全国网点OKR推进周报 · 历史归档</h1>
+  <p>共 {len(files)} 期报告</p>
+  <ul>
+{chr(10).join(items)}
+  </ul>
+  <div class="back"><a href="../index.html">← 返回最新周报</a></div>
+</body>
+</html>"""
+    with open(os.path.join(archive_dir, 'index.html'), 'w', encoding='utf-8') as f:
+        f.write(index_html)
+
+
 def main():
     skip_send = '--skip-send' in sys.argv
     allow_no_url = '--allow-no-url' in sys.argv
@@ -1848,6 +1892,21 @@ def main():
     with open(html_path, 'w', encoding='utf-8') as f:
         f.write(html)
     print(f'   HTML已保存: {html_path} ({len(html)} chars)')
+
+    # 5.1 保存带日期的归档副本 + 生成归档索引（用于历史回看）
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        repo_root = os.path.dirname(script_dir)  # cloud/ -> 仓库根目录
+        archive_dir = os.path.join(repo_root, 'docs', 'archive')
+        os.makedirs(archive_dir, exist_ok=True)
+        archive_path = os.path.join(archive_dir, f'okr-report-{today_str}.html')
+        with open(archive_path, 'w', encoding='utf-8') as f:
+            f.write(html)
+        print(f'   归档HTML已保存: {archive_path}')
+        _gen_archive_index(archive_dir)
+        print(f'   归档索引已更新')
+    except Exception as e:
+        print(f'   警告：归档保存失败（不影响主流程）: {e}', file=sys.stderr)
 
     if skip_send:
         print(f'[{datetime.now().isoformat()}] 完成（--skip-send模式，未发送消息）')

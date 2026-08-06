@@ -3,41 +3,46 @@
 ## 当前进度
 
 - ✅ GitHub Pages 链接已可用：`https://cjj202307-creator.github.io/weekly-rpt-x7k2/`
-- ✅ 工作流已在正确路径 `.github/workflows/okr-weekly.yml`（状态：active）
-- ✅ `cloud/okr_cloud_report.py` 已推送（最新v3：统一色调 + 周环比 + 环形图/条形图 + 可折叠 + **HTML历史归档**）
-- ✅ `docs/index.html` 已推送（W32基线报告，Pages已可访问）
-- ⚠️ 工作流文件需手动更新（加入snapshot持久化 + HTML归档捕获，否则周环比对比/历史回看不生效）
-- ✅ Secrets 和 Variable 此前已确认配置成功（10:58 workflow_dispatch运行结论success）
+- ✅ 工作流已在正确路径 `.github/workflows/okr-weekly.yml`
+- ✅ `cloud/okr_cloud_report.py` 已推送（最新版：统一色调 + 周环比 + 环形图/条形图 + 可折叠 + HTML历史归档 + 分析时间 + 按O排序）
+- ⚠️ 工作流文件需要手动更新为 **v3 版本**（修正 action 版本错误 + 改成"先部署后推送"顺序）
+- ⚠️ 需要把 cron 改成周四 17:30（`30 9 * * 4`）
+- ⚠️ 需要新增 Secret `DINGTALK_GROUP_WEBHOOK` 才能群推送
 
 ---
 
-## 你需要做的步骤（GitHub 网页操作）
+## 重要：v2 工作流为什么失败
 
-> **核心必做**：Step 1 更新工作流文件（否则周环比对比 + 历史归档不生效）。
-> Step 2/3 为确认项（此前已配好，可跳过）；Step 4 验证；Step 5 通知我。
+如果你已经按上一版复制过工作流，可能会看到 workflow run 失败。原因是上一版用了不存在的 action 版本：
 
-### Step 1：更新工作流文件（加入snapshot持久化 + 归档捕获）
+- ❌ `actions/checkout@v5`（不存在） → ✅ 改成 `actions/checkout@v4`
+- ❌ `actions/setup-python@v6`（不存在） → ✅ 改成 `actions/setup-python@v5`
 
-> 这步让**周环比对比**和**历史报告归档**两个功能生效。不做也能跑，只是每周都显示"首周基准数据"且看不到历史报告。
+下面 v3 版本已经修正。请直接用 v3 覆盖 `.github/workflows/okr-weekly.yml`。
+
+---
+
+## Step 1：更新工作流文件为 v3
 
 1. 打开 https://github.com/cjj202307-creator/weekly-rpt-x7k2/blob/main/.github/workflows/okr-weekly.yml
 2. 点右上角 **铅笔图标**（Edit）
-3. **全选删除**，粘贴以下完整内容：
+3. **全选删除**，粘贴以下内容：
 
 ```yaml
 name: OKR Weekly Report
 
 on:
   schedule:
-    # 每周五 02:00 UTC = 北京时间 10:00
-    - cron: '0 2 * * 5'
-  workflow_dispatch: # 允许手动触发
+    # 每周四 09:30 UTC = 北京时间 17:30
+    - cron: '30 9 * * 4'
+  workflow_dispatch:
 
 jobs:
   okr-report:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # 需要写权限推送HTML和snapshot到仓库
+      contents: write
+      pages: read
     steps:
       - uses: actions/checkout@v4
 
@@ -46,77 +51,124 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Run OKR Report
+      - name: Generate OKR Report
         env:
           DINGTALK_APP_KEY: ${{ secrets.DINGTALK_APP_KEY }}
           DINGTALK_APP_SECRET: ${{ secrets.DINGTALK_APP_SECRET }}
           DINGTALK_USER_ID: '17397552280041830'
           REPORT_URL: ${{ vars.REPORT_URL }}
-        run: python cloud/okr_cloud_report.py
+        run: python cloud/okr_cloud_report.py --skip-send
 
-      - name: Deploy HTML to GitHub Pages and persist snapshot
+      - name: Deploy HTML to GitHub Pages
         run: |
-          mkdir -p docs/archive
+          mkdir -p docs
           cp cloud/okr-report.html docs/index.html
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/
           git add data/snapshots/
-          git commit -m "Update OKR report HTML and snapshot ($(date +%Y-%m-%d))" || echo "No changes to commit"
+          git commit -m "Update OKR report HTML ($(date +%Y-%m-%d))" || echo "No changes to commit"
           git push
+
+      - name: Wait for GitHub Pages deployment
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Waiting for GitHub Pages deployment..."
+          latest_sha=$(git rev-parse HEAD)
+          echo "Latest commit SHA: $latest_sha"
+          export LATEST_SHA="$latest_sha"
+          for i in {1..30}; do
+            resp=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${{ github.repository }}/pages/deployments?per_page=5")
+            status=$(echo "$resp" | python -c "
+import sys, json, os
+sha = os.environ.get('LATEST_SHA', '')
+deployments = json.load(sys.stdin)
+if not isinstance(deployments, list):
+    print('unknown')
+    sys.exit(0)
+for d in deployments:
+    if d.get('sha') == sha:
+        print(d.get('status', 'unknown'))
+        sys.exit(0)
+print('not_found')
+")
+            echo "Attempt $i: Pages deployment status = $status"
+            if [ "$status" = "success" ]; then
+              echo "Pages deployment succeeded"
+              exit 0
+            elif [ "$status" = "errored" ]; then
+              echo "Pages deployment failed"
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "Timeout waiting for Pages deployment"
+          exit 1
+
+      - name: Send OKR Report Notifications
+        env:
+          DINGTALK_APP_KEY: ${{ secrets.DINGTALK_APP_KEY }}
+          DINGTALK_APP_SECRET: ${{ secrets.DINGTALK_APP_SECRET }}
+          DINGTALK_USER_ID: '17397552280041830'
+          DINGTALK_GROUP_WEBHOOK: ${{ secrets.DINGTALK_GROUP_WEBHOOK }}
+          REPORT_URL: ${{ vars.REPORT_URL }}
+        run: python cloud/okr_cloud_report.py --send-only
 ```
 
 4. 点 **Commit changes**
 
-> **变化点**：最后的 Deploy 步骤把 `git add docs/index.html` 改成 `git add docs/`（捕获整个docs目录，含新增的 `docs/archive/` 历史归档），并保留 `git add data/snapshots/`（周环比快照持久化）。脚本会自动在 `docs/archive/` 生成带日期的报告副本和归档索引页。
+> **v3 关键变化**：
+> 1. 修正 action 版本为 `checkout@v4` / `setup-python@v5`
+> 2. 顺序改为：生成报告 → 推送到仓库 → **等待 Pages 部署成功** → 发送钉钉消息。这样你收到链接时，页面一定已是最新版。
+> 3. cron 改为周四 09:30 UTC = 北京时间 17:30
+> 4. 增加 `DINGTALK_GROUP_WEBHOOK` Secret 用于群推送
 
 ---
 
-### Step 2：确认 Secrets 已配置（钉钉凭证）
+## Step 2：确认/新增 Secrets
 
 打开 https://github.com/cjj202307-creator/weekly-rpt-x7k2/settings/secrets/actions
 
-确认有以下两个 Secret（如果没有，点 **New repository secret** 添加）：
+确认有以下 Secret（如果没有，点 **New repository secret** 添加）：
 
-| 名称 | 值 |
+| 名称 | 说明 |
 |------|-----|
-| `DINGTALK_APP_KEY` | `ding1dxisfpwv9gcbtyb` |
-| `DINGTALK_APP_SECRET` | `7zM0cBvTBjFbxnl-eqhGUqg-mj--UeV16v-bRfog4KphLKvSBz3o2AOjPcC7rhlT` |
+| `DINGTALK_APP_KEY` | 钉钉应用 AppKey |
+| `DINGTALK_APP_SECRET` | 钉钉应用 AppSecret |
+| `DINGTALK_GROUP_WEBHOOK` | 群机器人 webhook 地址（新增，用于群推送） |
 
 > Secrets 配好后只会显示名称，不会显示值——这是正常的。
 
 ---
 
-### Step 3：确认 Variable 已配置（报告链接）
+## Step 3：确认 Variable
 
 打开 https://github.com/cjj202307-creator/weekly-rpt-x7k2/settings/variables/actions
 
-确认有以下 Variable（如果没有，点 **New repository variable** 添加）：
+确认有以下 Variable：
 
 | 名称 | 值 |
 |------|-----|
 | `REPORT_URL` | `https://cjj202307-creator.github.io/weekly-rpt-x7k2/` |
 
-> 不配这个，工作流会拒绝发钉钉消息（脚本内置保护机制）。
-
 ---
 
-### Step 4：手动验证一次
+## Step 4：手动验证
 
 1. 打开 https://github.com/cjj202307-creator/weekly-rpt-x7k2/actions
 2. 左侧选 **OKR Weekly Report**
 3. 点 **Run workflow** → 确认分支 `main` → 点 **Run**
-4. 等 1-2 分钟，点进运行记录看日志：
-   - 应出现 `发送成功！标题：OKR推进进展周报 Wxx（...）`
-   - 钉钉应收到一条带 GitHub Pages 链接的周报
+4. 等待运行完成，日志应依次显示：
+   - `Generate OKR Report`：生成 HTML
+   - `Deploy HTML to GitHub Pages`：推送到仓库
+   - `Wait for GitHub Pages deployment`：轮询直到 `status=success`
+   - `Send OKR Report Notifications`：个人 + 群消息发送成功
 
-验证成功后，**每周五 10:00 自动执行**，无需开电脑。
-
----
-
-### Step 5：确认后告诉我
-
-云端 Actions 跑通后，告诉我"云端已验证"。我会把本地 OKR 周报自动化（automation-1785895565220）保持 PAUSED 状态，避免重复消息。
+验证成功后，**每周四 17:30 自动执行**，无需开电脑。
 
 ---
 

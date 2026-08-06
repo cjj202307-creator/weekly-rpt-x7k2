@@ -10,7 +10,7 @@
 body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; background: #f5f6f8; color: #2c3e50; line-height: 1.6; }
 .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
 .header { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); border-radius: 18px; padding: 34px 38px; margin-bottom: 22px; box-shadow: 0 10px 40px rgba(26,26,46,0.2); color: #fff; }
-.header-logo { margin-bottom: 18px; display: inline-block; padding: 10px 18px; background: #ffffff; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+.header-logo { margin-bottom: 18px; display: inline-block; padding: 10px 18px; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.20); border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.18); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
     .header-logo img { max-height: 54px; max-width: 100%; height: auto; width: auto; display: block; }
 .header-brand { display: flex; align-items: center; gap: 18px; margin-bottom: 16px; }
 .header-icon { width: 52px; height: 52px; border-radius: 14px; background: linear-gradient(135deg, #3498db 0%, #1a5f9e 100%); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; color: #fff; letter-spacing: 1px; box-shadow: 0 4px 12px rgba(52,152,219,0.35); flex-shrink: 0; }
@@ -208,6 +208,7 @@ html { scroll-behavior: smooth; }
 .metric-card.clickable.active::after { content: "点击收起"; color: #3498db; }
 /* 预览提示 */
 .preview-hint { margin-top: 10px; padding: 6px 12px; background: #f0f7ff; border-radius: 6px; font-size: 12px; color: #1a5f9e; }
+.snapshot-note { margin-top: 8px; padding: 6px 12px; background: #fafafa; border-left: 3px solid #bdc3c7; border-radius: 4px; font-size: 11px; color: #7f8c8d; line-height: 1.6; }
 /* 关注项标签（折叠态可见） */
 .mdp-blocker-tag { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 8px; background: #f0f4f8; color: #4a6572; font-weight: 600; margin-left: 6px; vertical-align: 1px; }
 /* 关注项详情（展开态可见） */
@@ -305,6 +306,7 @@ html { scroll-behavior: smooth; }
   </div>
   <div class="meta">
     <span>日期：2026-08-06</span>
+    <span>分析时间：2026-08-06 18:22（北京时间）</span>
     <span>数据来源：协同待办事项表 · 网点OKR推进</span>
     <span class="meta-tag">云端自动生成</span>
   </div>
@@ -330,6 +332,7 @@ html { scroll-behavior: smooth; }
     <li class="warn"><strong>2项KR本周停滞</strong>（无进展描述或进度为0）</li>
   </ul>
   <div class="preview-hint">点击下方指标卡可展开对应KR明细 · 点击KR行可查看进展描述全文</div>
+  <div class="snapshot-note">本报告数据对应分析时间（2026-08-06 18:22）的表格快照，如后续表格有更新，数字以最新一期周报为准。</div>
 </div>
 
 <div class="metrics" id="sec-metrics">

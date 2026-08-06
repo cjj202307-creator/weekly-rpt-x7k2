@@ -1,71 +1,77 @@
 #!/usr/bin/env python3
 """
-等待 GitHub Pages 部署完成。
-用法：python wait_for_pages.py <owner/repo> <commit_sha> [--token <GITHUB_TOKEN>]
+等待 GitHub Pages 实际可访问到最新报告。
+
+本仓库 Pages 为「从分支部署」：push 到 main 后 GitHub 自动构建，
+pages/deployments API 不会返回记录（所以不能用它判断部署是否完成）。
+
+改为直接轮询线上 URL：把刚生成的本地 HTML 作为基准，
+当线上页面内容与本次生成的报告一致（含相同的分析时间标记）时，视为已生效。
 """
-import json, os, sys, time, urllib.request, urllib.error
+import os, sys, re, time, hashlib, urllib.request, urllib.error
+
+LOCAL_HTML_DEFAULT = "cloud/okr-report.html"
 
 
-def api_get(url, token):
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "okr-weekly-waiter",
-    }
-    req = urllib.request.Request(url, headers=headers)
+def fetch(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "okr-weekly-waiter"})
     try:
-        with urllib.request.urlopen(req) as r:
-            return json.loads(r.read())
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return r.status, r.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
-        err = e.read().decode()
-        print(f"HTTP {e.code}: {err[:500]}", file=sys.stderr)
-        return None
+        return e.code, e.read().decode("utf-8", "replace")
+    except Exception as e:
+        return 0, str(e)
+
+
+def extract_marker(html):
+    # 报告头含：分析时间：YYYY-MM-DD HH:MM:SS（北京时间）
+    m = re.search(
+        r"分析时间[：:]\s*([\d]{4}-[\d]{2}-[\d]{2} [\d]{2}:[\d]{2}:[\d]{2})",
+        html,
+    )
+    if m:
+        return m.group(1)
+    # 兜底：用整页 md5（仅在无分析时间标记时使用）
+    return hashlib.md5(html.encode("utf-8")).hexdigest()
 
 
 def main():
-    if len(sys.argv) < 3:
-        print("Usage: python wait_for_pages.py <owner/repo> <commit_sha> [--token <token>]", file=sys.stderr)
-        sys.exit(2)
+    report_url = os.environ.get("REPORT_URL", "")
+    local_path = os.environ.get("LOCAL_HTML", LOCAL_HTML_DEFAULT)
 
-    repo = sys.argv[1]
-    target_sha = sys.argv[2]
-    token = None
-    if "--token" in sys.argv:
-        idx = sys.argv.index("--token")
-        token = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else ""
-    if not token:
-        token = os.environ.get("GITHUB_TOKEN", "")
-    if not token:
-        print("GITHUB_TOKEN not provided", file=sys.stderr)
-        sys.exit(2)
+    if not report_url:
+        print("REPORT_URL 未设置，跳过等待（直接发送）")
+        sys.exit(0)
+    if not os.path.exists(local_path):
+        print(f"本地报告不存在：{local_path}，跳过等待（直接发送）")
+        sys.exit(0)
 
-    url = f"https://api.github.com/repos/{repo}/pages/deployments?per_page=5"
-    print(f"Waiting for Pages deployment of {repo}@{target_sha[:8]}...")
+    with open(local_path, "r", encoding="utf-8") as f:
+        local_html = f.read()
+    marker = extract_marker(local_html)
 
-    for attempt in range(1, 31):
-        deployments = api_get(url, token)
-        if not isinstance(deployments, list):
-            print(f"Attempt {attempt}: invalid response, retrying...")
-            time.sleep(10)
-            continue
+    print(f"等待 Pages 上线最新报告：{report_url}")
+    print(f"判定标记（分析时间）：{marker}")
 
-        status = "not_found"
-        for d in deployments:
-            if d.get("sha") == target_sha:
-                status = d.get("status", "unknown")
-                break
-
-        print(f"Attempt {attempt}: Pages deployment status = {status}")
-        if status == "success":
-            print("Pages deployment succeeded")
+    max_attempts = 40
+    interval = 15
+    for attempt in range(1, max_attempts + 1):
+        # 加 cache-buster，避免 CDN 返回旧缓存
+        cb = int(time.time())
+        url = f"{report_url}?cb={cb}" if "?" not in report_url else f"{report_url}&cb={cb}"
+        status, body = fetch(url)
+        if status == 200 and marker in body:
+            print(f"Attempt {attempt}: 成功（线上页面已是最新报告）")
             sys.exit(0)
-        elif status == "errored":
-            print("Pages deployment failed", file=sys.stderr)
-            sys.exit(1)
-        time.sleep(10)
+        elif status == 200:
+            print(f"Attempt {attempt}: HTTP 200，但页面仍是旧版本（CDN 缓存中），继续等待…")
+        else:
+            print(f"Attempt {attempt}: HTTP {status}，继续等待…")
+        if attempt < max_attempts:
+            time.sleep(interval)
 
-    print("Timeout waiting for Pages deployment", file=sys.stderr)
+    print("超时：Pages 仍未上线最新报告（请检查 Pages 构建状态）", file=sys.stderr)
     sys.exit(1)
 
 

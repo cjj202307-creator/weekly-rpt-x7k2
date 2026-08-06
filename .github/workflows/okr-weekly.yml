@@ -71,5 +71,6 @@ jobs:
           DINGTALK_APP_SECRET: ${{ secrets.DINGTALK_APP_SECRET }}
           DINGTALK_USER_ID: '17397552280041830'
           DINGTALK_GROUP_WEBHOOK: ${{ secrets.DINGTALK_GROUP_WEBHOOK }}
+          DINGTALK_GROUP_WEBHOOK_SITE_DIGITAL: ${{ secrets.DINGTALK_GROUP_WEBHOOK_SITE_DIGITAL }}
           REPORT_URL: ${{ vars.REPORT_URL }}
         run: python cloud/okr_cloud_report.py --send-only

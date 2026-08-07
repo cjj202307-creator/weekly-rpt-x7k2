@@ -781,23 +781,6 @@ table.kr-table .kr-cell small { color: #8898aa; font-size: 11px; }
 .o-bar-row:hover { background: #f0f7ff; }
 .o-bar-detail { display: none; margin-top: 6px; padding: 6px 10px; background: #f8f9fa; border-radius: 4px; font-size: 12px; }
 .o-bar-row:hover .o-bar-detail { display: block; }
-/* KR跟进人一览 */
-.kr-follower-list { display: flex; flex-direction: column; gap: 0; }
-.kr-fol-group { border: 1px solid #eceff3; border-radius: 10px; overflow: hidden; margin-bottom: 10px; }
-.kr-fol-group-header { font-size: 14px; font-weight: 700; color: #1a1a2e; padding: 12px 16px; background: #f8f9fa; border-left: 3px solid #3498db; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: background 0.2s; user-select: none; }
-.kr-fol-group-header:hover { background: #e3f2fd; }
-.kr-fol-group-header .fol-arrow { display: inline-block; font-size: 10px; color: #8898aa; transition: transform 0.2s; }
-.kr-fol-group.expanded .fol-arrow { transform: rotate(90deg); }
-.kr-fol-group-body { display: none; }
-.kr-fol-group.expanded .kr-fol-group-body { display: block; }
-.kr-follower-item { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border-bottom: 1px solid #eee; transition: background 0.2s; }
-.kr-follower-item:last-child { border-bottom: none; }
-.kr-follower-item:hover { background: #f8f9fc; }
-.kr-follower-item .kr-name { font-size: 13px; font-weight: 600; color: #2c3e50; flex: 1; min-width: 0; line-height: 1.8; }
-.kr-follower-item .kr-prog { font-size: 13px; font-weight: 700; flex-shrink: 0; min-width: 50px; text-align: right; }
-.kr-follower-item .kr-fol-list { font-size: 11px; color: #888; flex-shrink: 0; max-width: 320px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-.kr-follower-item .kr-fol-list .follower-tag { font-size: 10px; }
-.kr-follower-item .o-cell { display: inline-block; background: #e3f2fd; color: #1a5f9e; font-size: 10px; padding: 1px 6px; border-radius: 8px; font-weight: 700; margin-right: 6px; }
 /* 本周进展亮点（GM核心板块） */
 .o-badge { display: inline-block; background: #1a1a2e; color: #fff; font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 700; margin-right: 8px; }
 .ph-o-header { font-size: 15px; font-weight: 700; color: #1a1a2e; padding: 14px 4px 10px; margin-top: 18px; border-bottom: 2px solid #e8e8e8; display: flex; align-items: center; gap: 4px; }
@@ -1089,10 +1072,6 @@ function toggleMKR(el) {
   const kr = el.closest('.mdp-kr');
   if (kr) kr.classList.toggle('expanded');
 }
-function toggleFolGroup(idx) {
-  const group = document.getElementById('fol-group-' + idx);
-  if (group) group.classList.toggle('expanded');
-}
 function updateFilterCounts() {
   const setTxt = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
   setTxt('c-all', `(${okrData.length})`);
@@ -1265,43 +1244,6 @@ def _gen_kr_table(krs, a):
   </td>
 </tr>''')
     return ''.join(rows)
-
-def _gen_kr_followers(krs, a):
-    """服务端渲染各KR跟进人一览（按O分组可折叠）"""
-    o_groups = {}
-    for kr in krs:
-        if kr['o'] not in o_groups:
-            o_groups[kr['o']] = {'title': kr['oTitle'], 'krs': []}
-        o_groups[kr['o']]['krs'].append(kr)
-
-    html_parts = []
-    group_idx = 0
-    for o_code in ['O1', 'O2', 'O3', 'O4']:
-        g = o_groups.get(o_code)
-        if not g: continue
-        group_idx += 1
-        items_html = []
-        for kr in g['krs']:
-            color = _prog_color(kr['progress'])
-            prog_str = f'{kr["progress"]}%' if kr['progress'] is not None else '未追踪'
-            if kr['followers'] and len(kr['followers']) > 0:
-                fol_names = ''.join([f'<span class="follower-tag">{_esc(n)}</span>' for n in kr['followers']])
-            else:
-                fol_names = '<span class="badge badge-red">无跟进人</span>'
-            overdue_tag = f' <span class="badge badge-red">超目标{a["days_overdue"](kr)}天</span>' if a['is_overdue'](kr) else ''
-            risk_tag = f' <span class="badge badge-orange">需关注</span>' if a['is_risk'](kr) and not a['is_overdue'](kr) else ''
-            items_html.append(f'''<div class="kr-follower-item">
-  <div class="kr-name"><span class="o-cell">{kr["o"]}</span> {_esc(kr["kr"])}{overdue_tag}{risk_tag}</div>
-  <div class="kr-prog" style="color:{color}">{prog_str}</div>
-  <div class="kr-fol-list">{fol_names}</div>
-</div>''')
-        html_parts.append(f'''<div class="kr-fol-group expanded" id="fol-group-{group_idx}">
-  <div class="kr-fol-group-header" onclick="toggleFolGroup({group_idx})">
-    <span class="fol-arrow">▶</span>{o_code} {_esc(g["title"])}（{len(g["krs"])}项KR）
-  </div>
-  <div class="kr-fol-group-body">{''.join(items_html)}</div>
-</div>''')
-    return ''.join(html_parts)
 
 def _gen_risk_cards_html(risk_cards):
     """服务端渲染风险卡片"""
@@ -1976,7 +1918,6 @@ def generate_html(a, today_str, week_str='', comparison=None, ai_insight=None):
     o_bar_chart_html = _gen_o_bar_chart(a, comparison)
     metric_panels = _gen_metric_panels(krs, a, comparison=comparison)
     kr_table_html = _gen_kr_table(krs, a)
-    kr_follower_html = _gen_kr_followers(krs, a)
     risk_cards_html = _gen_risk_cards_html(risk_cards[:6])
     dq_html = _gen_dq_html(dq_items)
     history_html = _gen_history_section()
@@ -2031,7 +1972,6 @@ def generate_html(a, today_str, week_str='', comparison=None, ai_insight=None):
   <a href="#sec-ochart" class="nav-highlight">进度可视化</a>
   <a href="#sec-risk" class="nav-highlight">重点关注</a>
   <a href="#sec-detail" class="nav-highlight">KR明细</a>
-  <a href="#sec-followers" class="nav-highlight">跟进人</a>
   <a href="#sec-dq" class="nav-highlight">数据质量</a>
   <a href="#sec-history" class="nav-highlight">历史</a>
 </nav>
@@ -2136,11 +2076,6 @@ def generate_html(a, today_str, week_str='', comparison=None, ai_insight=None):
       <tbody id="krBody">{kr_table_html}</tbody>
     </table>
   </div>
-</div>
-
-<div class="section" id="sec-followers">
-  <h2>各KR跟进人一览</h2>
-  <div class="kr-follower-list" id="krFollowerList">{kr_follower_html}</div>
 </div>
 
 <div class="section" id="sec-dq">

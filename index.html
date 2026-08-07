@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>中芯核销拆票工具</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="app-header">
+            <h1>中芯核销拆票工具</h1>
+            <p>上传 Excel 文件，自动完成拆票分组、高亮标注、生成分票理由</p>
+        </div>
+
+        <!-- 上传区域 -->
+        <div class="drop-zone" id="dropZone">
+            <div class="drop-zone-icon">📄</div>
+            <div class="drop-zone-text">点击或拖拽 Excel 文件到此处</div>
+            <div class="drop-zone-hint">支持 .xlsx / .xls / .xlsm 格式，数据需在「中芯」sheet中</div>
+        </div>
+        <input type="file" id="fileInput" accept=".xlsx,.xls,.xlsm">
+
+        <p class="upload-info" id="uploadInfo"></p>
+
+        <!-- 统计信息 -->
+        <div class="stats" id="stats" style="display:none;"></div>
+
+        <!-- 下载区域 -->
+        <div class="download-section" id="downloadSection" style="display:none;">
+            <button class="download-btn" id="downloadBtn">⬇ 下载拆票结果 Excel</button>
+        </div>
+
+        <!-- 标签页 -->
+        <div id="resultArea" style="display:none;">
+            <div class="tabs">
+                <button class="tab active" data-tab="tabValidation">数据校验</button>
+                <button class="tab" data-tab="tabResult">拆票结果</button>
+                <button class="tab" data-tab="tabReasons">分票理由</button>
+                <button class="tab" data-tab="tabConfig">规则配置</button>
+            </div>
+
+            <div class="tab-content active" id="tabValidation">
+                <div class="table-container">
+                    <div id="validationTable"></div>
+                </div>
+            </div>
+
+            <div class="tab-content" id="tabResult">
+                <div class="table-container">
+                    <div id="resultTable"></div>
+                </div>
+            </div>
+
+            <div class="tab-content" id="tabReasons">
+                <div class="table-container">
+                    <div id="reasonsTable"></div>
+                </div>
+            </div>
+
+            <div class="tab-content" id="tabConfig">
+                <div id="configDisplay"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 处理中遮罩 -->
+    <div class="processing-overlay" id="processingOverlay">
+        <div class="spinner"></div>
+        <div class="progress-text" id="progressText">正在处理...</div>
+    </div>
+
+    <!-- 提示框 -->
+    <div class="alert" id="alertBox"></div>
+
+    <!-- SheetJS CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- 应用脚本 -->
+    <script src="js/config.js"></script>
+    <script src="js/splitEngine.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

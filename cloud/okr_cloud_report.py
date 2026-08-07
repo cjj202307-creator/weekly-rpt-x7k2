@@ -471,7 +471,7 @@ def compare_with_previous(a, prev_snapshot):
             })
     progress_gained.sort(key=lambda x: -x['delta'])
 
-    # 描述有更新的KR（新增或变化）
+    # 描述有变化的KR（新增或修改）——捕获所有文本变化，含before/after原文
     def _norm_desc(d):
         return (d or '').strip()
     desc_updated = []
@@ -480,10 +480,13 @@ def compare_with_previous(a, prev_snapshot):
         pre = prev_krs[rid]
         cur_d = _norm_desc(cur.get('krDesc'))
         pre_d = _norm_desc(pre.get('krDesc'))
-        if cur_d and cur_d != pre_d and (not pre_d or len(pre_d) < 2):
+        if cur_d and cur_d != pre_d:
             desc_updated.append({
                 'recordId': rid, 'o': cur['o'], 'kr': cur['kr'],
-                'progress': cur.get('progress'), 'is_new': not pre_d or len(pre_d) < 2
+                'progress': cur.get('progress'),
+                'is_new': not pre_d or len(pre_d) < 2,
+                'before_desc': pre_d,
+                'after_desc': cur_d
             })
     desc_updated.sort(key=lambda x: (x['o'], x['kr']))
 
@@ -888,6 +891,35 @@ html { scroll-behavior: smooth; }
 .delta-up { background: #e3f2fd; color: #1a5f9e; }
 .delta-down { background: #fdecea; color: #d32f2f; }
 .delta-neutral { background: #f0f2f5; color: #7f8c8d; }
+/* 本周变化一览 */
+.change-group { margin-bottom: 22px; }
+.change-group:last-child { margin-bottom: 0; }
+.change-group-title { font-size: 14px; font-weight: 700; color: #1a1a2e; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+.change-count { font-size: 11px; color: #8898aa; font-weight: 600; background: #f0f2f5; padding: 2px 10px; border-radius: 10px; }
+.change-empty { font-size: 13px; color: #aab7b8; padding: 12px 0; }
+.change-item { background: #fafbfc; border-radius: 10px; padding: 14px 18px; margin-bottom: 8px; border: 1px solid rgba(0,0,0,0.04); }
+.change-item:last-child { margin-bottom: 0; }
+.change-kr { font-size: 13px; font-weight: 600; color: #2c3e50; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.change-kr .o-tag { font-size: 10px; padding: 1px 6px; border-radius: 6px; background: #e8eaf6; color: #3949ab; font-weight: 700; }
+.change-tag { font-size: 10px; padding: 1px 7px; border-radius: 8px; font-weight: 700; }
+.change-tag.tag-new { background: #e8f5e9; color: #1b5e20; }
+.change-tag.tag-update { background: #e3f2fd; color: #1a5f9e; }
+.change-delta-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.change-delta-row .before-val { color: #aab7b8; font-weight: 600; }
+.change-delta-row .after-val { color: #1a5f9e; font-weight: 800; }
+.change-delta-row .arrow { color: #bbb; font-size: 14px; }
+.desc-diff { display: flex; align-items: flex-start; gap: 14px; margin-top: 4px; }
+.desc-diff .desc-col { flex: 1; min-width: 0; }
+.desc-diff .desc-label { font-size: 10px; color: #aab7b8; font-weight: 700; margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.5px; }
+.desc-diff .desc-text { font-size: 13px; line-height: 1.7; color: #555; word-break: break-word; }
+.desc-diff .desc-text.before { color: #999; text-decoration: line-through; text-decoration-color: #ddd; }
+.desc-diff .desc-text.after { color: #1a1a2e; font-weight: 500; }
+.desc-diff .desc-arrow { font-size: 18px; color: #3498db; flex-shrink: 0; padding-top: 14px; }
+.desc-diff .desc-empty { font-size: 13px; color: #ccc; font-style: italic; }
+@media (max-width: 768px) {
+  .desc-diff { flex-direction: column; gap: 6px; }
+  .desc-diff .desc-arrow { display: none; }
+}
 /* 图表网格 */
 .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 18px; }
 .chart-box { background: #fafbfc; border-radius: 12px; padding: 18px; border: 1px solid rgba(0,0,0,0.04); }
@@ -1537,6 +1569,97 @@ def _gen_comparison_html(a, comparison):
     html += '</div>'
     return html
 
+def _gen_changes_overview(a, comparison):
+    """本周变化一览：逐条展示KR的进度变化和关键结果描述变化（before→after）"""
+    if not comparison:
+        return '''<div class="comparison-banner first-week">
+  <div class="comp-icon">📊</div>
+  <div class="comp-text">
+    <div class="comp-title">首周基准数据</div>
+    <div class="comp-sub">下周自动生成后将显示与本周的变化对比</div>
+  </div>
+</div>'''
+
+    prev_week = comparison['prev_week']
+    parts = []
+
+    # ── 进度提升 ──
+    pg = comparison.get('progress_gained', [])
+    parts.append(f'<div class="change-group">')
+    parts.append(f'<div class="change-group-title">📈 进度提升 <span class="change-count">{len(pg)}项</span></div>')
+    if pg:
+        for k in pg:
+            parts.append(f'''<div class="change-item">
+  <div class="change-kr"><span class="o-tag">{_esc(k["o"])}</span>{_esc(k["kr"])}</div>
+  <div class="change-delta-row">
+    <span class="before-val">{k["before"]}%</span>
+    <span class="arrow">→</span>
+    <span class="after-val">{k["after"]}%</span>
+    {_delta_badge(k["delta"], "%")}
+  </div>
+</div>''')
+    else:
+        parts.append('<div class="change-empty">本周无进度提升项</div>')
+    parts.append('</div>')
+
+    # ── 关键结果描述变化 ──
+    du = comparison.get('desc_updated', [])
+    parts.append(f'<div class="change-group">')
+    parts.append(f'<div class="change-group-title">📝 关键结果描述变化 <span class="change-count">{len(du)}项</span></div>')
+    if du:
+        for k in du:
+            is_new = k.get('is_new', False)
+            tag = '<span class="change-tag tag-new">首次填写</span>' if is_new else '<span class="change-tag tag-update">描述更新</span>'
+            before_d = k.get('before_desc', '')
+            after_d = k.get('after_desc', '')
+            before_html = f'<span class="desc-empty">（上周无描述）</span>' if not before_d or len(before_d) < 2 else _esc(before_d)
+            after_html = _esc(after_d) if after_d else '<span class="desc-empty">（已清空）</span>'
+            parts.append(f'''<div class="change-item">
+  <div class="change-kr"><span class="o-tag">{_esc(k["o"])}</span>{_esc(k["kr"])} {tag}</div>
+  <div class="desc-diff">
+    <div class="desc-col">
+      <div class="desc-label">上周</div>
+      <div class="desc-text before">{before_html}</div>
+    </div>
+    <div class="desc-arrow">→</div>
+    <div class="desc-col">
+      <div class="desc-label">本周</div>
+      <div class="desc-text after">{after_html}</div>
+    </div>
+  </div>
+</div>''')
+    else:
+        parts.append('<div class="change-empty">本周无描述变化</div>')
+    parts.append('</div>')
+
+    # ── 新增KR ──
+    nk = comparison.get('new_krs', [])
+    if nk:
+        parts.append(f'<div class="change-group">')
+        parts.append(f'<div class="change-group-title">🆕 新增KR <span class="change-count">{len(nk)}项</span></div>')
+        for k in nk:
+            p_str = f'{k.get("progress", 0)}%' if k.get('progress') is not None else '未追踪'
+            parts.append(f'''<div class="change-item">
+  <div class="change-kr"><span class="o-tag">{_esc(k["o"])}</span>{_esc(k["kr"])}</div>
+  <div class="change-delta-row"><span class="before-val">新增</span><span class="arrow">→</span><span class="after-val">{p_str}</span></div>
+</div>''')
+        parts.append('</div>')
+
+    # ── 移除KR ──
+    rk = comparison.get('removed_krs', [])
+    if rk:
+        parts.append(f'<div class="change-group">')
+        parts.append(f'<div class="change-group-title">❌ 移除KR <span class="change-count">{len(rk)}项</span></div>')
+        for k in rk:
+            p_str = f'{k.get("progress", 0)}%' if k.get('progress') is not None else '未追踪'
+            parts.append(f'''<div class="change-item">
+  <div class="change-kr"><span class="o-tag">{_esc(k["o"])}</span>{_esc(k["kr"])}</div>
+  <div class="change-delta-row"><span class="before-val">{p_str}</span><span class="arrow">→</span><span class="after-val">已移除</span></div>
+</div>''')
+        parts.append('</div>')
+
+    return '\n'.join(parts)
+
 def _gen_status_donut(krs, a):
     """状态分布环形图（SVG），悬停显示该分类下的KR明细"""
     # 非重叠分类（互斥）
@@ -1794,6 +1917,7 @@ def generate_html(a, today_str, week_str='', comparison=None, ai_insight=None):
     # 服务端渲染各板块
     dist_chart_html = _gen_dist_chart(krs)
     comparison_html = _gen_comparison_html(a, comparison)
+    changes_html = _gen_changes_overview(a, comparison)
     ai_html = _gen_ai_insight_html(ai_insight)
     status_donut_html = _gen_status_donut(krs, a)
     o_bar_chart_html = _gen_o_bar_chart(a, comparison)
@@ -1850,6 +1974,7 @@ def generate_html(a, today_str, week_str='', comparison=None, ai_insight=None):
   <a href="#sec-ai" class="nav-highlight">智能洞察</a>
   <a href="#sec-metrics" class="nav-highlight">指标</a>
   <a href="#sec-compare" class="nav-highlight">周环比</a>
+  <a href="#sec-changes" class="nav-highlight">本周变化</a>
   <a href="#sec-ochart" class="nav-highlight">进度可视化</a>
   <a href="#sec-risk" class="nav-highlight">重点关注</a>
   <a href="#sec-detail" class="nav-highlight">KR明细</a>
@@ -1902,6 +2027,11 @@ def generate_html(a, today_str, week_str='', comparison=None, ai_insight=None):
 <div class="section" id="sec-compare">
   <h2>周环比变化</h2>
   {comparison_html}
+</div>
+
+<div class="section" id="sec-changes">
+  <h2>本周变化一览 <small style="font-weight:400;color:#8898aa;font-size:12px;margin-left:8px">较上周{comparison['prev_week'] if comparison else ''}的关键结果描述变化</small></h2>
+  {changes_html}
 </div>
 
 <div class="section" id="sec-ochart">

@@ -1609,7 +1609,7 @@ def build_data_summary_text(a, comparison=None):
     lines = []
     today_cn = (datetime.now(timezone.utc) + timedelta(hours=8)).strftime('%Y年%m月%d日')
     lines.append(f'全国各网点基于集团四大OKR的推进执行数据（分析时点：{today_cn}。注意：这是各网点推进执行层面的数据，不是集团目标本身的完成情况）：')
-    lines.append(f'- 网点推进平均进度：{a["overall_avg"]}%')
+    lines.append(f'- OKR推进平均进度：{a["overall_avg"]}%')
     lines.append(f'- KR总数：{len(krs)}项；本周有进展：{a["updated_count"]}项；已达成：{a["done_count"]}项；停滞：{a["stale_count"]}项；超过目标日期未完成：{a["overdue_count"]}项；未追踪：{a["untracked_count"]}项')
     for o in sorted(o_prog.keys(), key=lambda x: int(''.join(ch for ch in x if ch.isdigit()) or 0)):
         ps = o_prog[o]
@@ -1650,16 +1650,16 @@ def call_llm_insight(api_key, model, data_text):
         '严格要求：'
         '① 用简体中文，客观、简洁、可直接给管理层看；'
         '② 只基于数据中存在的内容分析，不虚构任何数据中不存在的信息；'
-        '③ 表述口径必须是"网点推进进度"，严禁说"集团整体平均进度""集团完成度"这类话——'
-        '进度数字代表各网点推进执行的平均水平，正确说法是"各网点推进平均进度约56%"；'
+        '③ 表述口径必须是"OKR推进进度"，严禁说"集团整体平均进度""集团完成度"这类话——'
+        '进度数字代表各网点推进执行的平均水平，正确说法是"OKR推进平均进度约56%"；'
         '④ 不臆想组织架构或职位名称——数据中只有"跟进人"姓名，不要出现"总经理办公室""副总裁""运营总监"等任何虚构职位；'
         '⑤ 语言中立客观，不使用归因性或指责性措辞——禁止使用"领导缺失""不重视""失职""不作为""推诿"等负面定性词，只客观描述进度状态和卡点事实；'
         '⑥ 不指派任务、不安排人员、不设截止日期、不提改进建议——只做客观进展描述，不教管理层做事；'
         '⑦ 严格只输出JSON，格式：'
-        '{"summary":"一段80-120字客观概括各网点推进态势与各目标进展差异",'
+        '{"summary":"一段80-120字客观概括OKR推进态势与各目标进展差异",'
         '"risks":["客观描述的关注点1（基于进度/卡点事实，不带指责）","关注点2"]}'
     )
-    user = f'以下是本周各网点OKR推进数据摘要（当前日期{today_cn}）：\n{data_text}\n\n请输出上述JSON。'
+    user = f'以下是本周OKR推进数据摘要（当前日期{today_cn}）：\n{data_text}\n\n请输出上述JSON。'
     body = {
         'model': model,
         'messages': [

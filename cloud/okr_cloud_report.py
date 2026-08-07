@@ -422,16 +422,18 @@ def save_snapshot(a, today_str, week_str):
     return path
 
 def load_previous_snapshot(today_str=None):
-    """加载最近一周的历史快照（排除当天）"""
+    """加载上一周（不同ISO周）的历史快照。同周多次运行不对比。"""
     _ensure_snapshot_dir()
     today = date.fromisoformat(today_str) if today_str else date.today()
+    today_iso = today.isocalendar()  # (year, week, weekday)
     files = []
     if os.path.isdir(SNAPSHOT_DIR):
         for name in os.listdir(SNAPSHOT_DIR):
             if name.startswith('okr-snapshot-') and name.endswith('.json'):
                 try:
                     d = date.fromisoformat(name.replace('okr-snapshot-', '').replace('.json', ''))
-                    if d < today:
+                    # 排除当天，且只取不同ISO周的快照
+                    if d < today and d.isocalendar()[1] != today_iso[1]:
                         files.append((d, name))
                 except: pass
     if not files:

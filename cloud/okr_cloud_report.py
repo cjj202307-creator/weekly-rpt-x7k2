@@ -541,7 +541,7 @@ def build_notify_md(today_str, report_url, week_str=''):
     lines = []
     lines.append(f'# 全国网点OKR推进周报{title_suffix}')
     lines.append('')
-    lines.append('本周报告已生成，完整内容（指标 · 进度 · 重点关注 · 历史周报）请点击下方查看 👇')
+    lines.append('本周报告已生成，完整内容（智能洞察 指标 · 进度 · 重点关注 · 历史周报）请点击下方查看 👇')
     lines.append('')
     if report_url:
         lines.append(f'[📊 查看完整报告]({report_url})')
@@ -1597,7 +1597,7 @@ def _gen_o_bar_chart(a, comparison):
 </div>''')
     return ''.join(bars)
 
-# ===== AI 管理层洞察（DeepSeek，OpenAI 兼容接口）=====
+# ===== 智能洞察（DeepSeek，OpenAI 兼容接口）=====
 
 def build_data_summary_text(a, comparison=None):
     """构造给大模型的精简数据摘要（结构化、不泄露密钥）。失败也不影响主流程。"""
@@ -1694,7 +1694,7 @@ def _gen_ai_insight_html(insight):
         return ''
     summary = (insight.get('summary') or '').strip()
     risks = insight.get('risks') or []
-    parts = ['<div class="section ai-insight" id="sec-ai">', '  <h2>AI 管理层洞察</h2>']
+    parts = ['<div class="section ai-insight" id="sec-ai">', '  <h2>智能洞察</h2>']
     if summary:
         parts.append(f'  <div class="ai-summary">{_esc(summary)}</div>')
     if risks:
@@ -1702,7 +1702,7 @@ def _gen_ai_insight_html(insight):
         for r in risks[:5]:
             parts.append(f'    <li>{_esc(r)}</li>')
         parts.append('  </ul></div>')
-    parts.append('  <div class="ai-note">本板块由 AI（DeepSeek）基于表格数据自动生成，仅供参考，请以最新实际进展为准。</div>')
+    parts.append('  <div class="ai-note">本板块由 DeepSeek 基于表格数据自动生成，仅供参考，请以最新实际进展为准。</div>')
     parts.append('</div>')
     return '\n'.join(parts)
 
@@ -1847,7 +1847,7 @@ def generate_html(a, today_str, week_str='', comparison=None, ai_insight=None):
 
 <nav class="topnav">
   <a href="#sec-summary" class="nav-highlight">本周概况</a>
-  <a href="#sec-ai" class="nav-highlight">AI洞察</a>
+  <a href="#sec-ai" class="nav-highlight">智能洞察</a>
   <a href="#sec-metrics" class="nav-highlight">指标</a>
   <a href="#sec-compare" class="nav-highlight">周环比</a>
   <a href="#sec-ochart" class="nav-highlight">进度可视化</a>

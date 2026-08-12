@@ -2153,17 +2153,33 @@ def _gen_history_section():
 
 
 def _gen_archive_index(archive_dir):
-    """生成归档索引页，列出所有历史报告，方便回看"""
+    """生成归档索引页，按ISO周去重列出历史报告（每周只显示最新一期）"""
     files = []
     for name in os.listdir(archive_dir):
-        if name.startswith('okr-report-') and name.endswith('.html'):
+        if name.startswith('okr-report-') and name.endswith('.html') and name != 'index.html':
             d = name.replace('okr-report-', '').replace('.html', '')
-            files.append((d, name))
-    files.sort(reverse=True)  # 最新在前
+            try:
+                dt = datetime.strptime(d, '%Y-%m-%d')
+                week = get_iso_week(dt.date())
+            except Exception:
+                week = ''
+            files.append((d, name, week))
+    files.sort(key=lambda x: x[0], reverse=True)  # 最新在前
+
+    # 按ISO周去重：每周只保留最新一期
+    seen_weeks = set()
+    unique_files = []
+    for d, name, week in files:
+        if week and week in seen_weeks:
+            continue
+        if week:
+            seen_weeks.add(week)
+        unique_files.append((d, name, week))
 
     items = []
-    for d, name in files:
-        items.append(f'    <li><a href="./{name}">{d}</a></li>')
+    for d, name, week in unique_files:
+        week_badge = f'<span class="week-badge">{week}</span>' if week else ''
+        items.append(f'    <li>{week_badge}<a href="./{name}">{d}</a></li>')
 
     index_html = f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -2175,8 +2191,9 @@ def _gen_archive_index(archive_dir):
   body {{ font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #f5f6fa; color: #1a1a2e; max-width: 720px; margin: 40px auto; padding: 0 20px; }}
   h1 {{ font-size: 22px; color: #0f3460; }}
   ul {{ list-style: none; padding: 0; }}
-  li {{ padding: 12px 16px; background: #fff; margin-bottom: 8px; border-radius: 8px; border-left: 4px solid #3498db; }}
-  a {{ color: #1a5f9e; text-decoration: none; font-weight: 600; }}
+  li {{ padding: 14px 18px; background: #fff; margin-bottom: 10px; border-radius: 8px; border-left: 4px solid #3498db; display: flex; align-items: center; gap: 12px; }}
+  .week-badge {{ display: inline-block; background: #1a1a2e; color: #fff; font-size: 14px; font-weight: 700; padding: 4px 10px; border-radius: 6px; min-width: 44px; text-align: center; }}
+  a {{ color: #1a5f9e; text-decoration: none; font-weight: 600; font-size: 15px; }}
   a:hover {{ text-decoration: underline; }}
   .back {{ margin-top: 24px; }}
   .back a {{ color: #3498db; }}
@@ -2184,7 +2201,7 @@ def _gen_archive_index(archive_dir):
 </head>
 <body>
   <h1>全国网点OKR推进周报 · 历史归档</h1>
-  <p>共 {len(files)} 期报告</p>
+  <p>共 {len(unique_files)} 周报告</p>
   <ul>
 {chr(10).join(items)}
   </ul>

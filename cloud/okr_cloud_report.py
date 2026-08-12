@@ -815,8 +815,8 @@ html { scroll-behavior: smooth; }
 .history-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-top: 6px; }
 .history-card { display: block; text-decoration: none; background: linear-gradient(135deg, #f8f9fc 0%, #eef2f8 100%); border: 1px solid #e3e8f0; border-left: 4px solid #3498db; border-radius: 10px; padding: 16px 18px; color: #1a1a2e; transition: all 0.2s; }
 .history-card:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(26,26,46,0.12); border-left-color: #1a5f9e; background: linear-gradient(135deg, #eef4fb 0%, #e3f2fd 100%); }
-.history-date { font-size: 16px; font-weight: 800; color: #0f3460; }
-.history-week { font-size: 12px; color: #8898aa; margin-top: 4px; }
+.history-week { font-size: 20px; font-weight: 800; color: #0f3460; }
+.history-date { font-size: 12px; color: #8898aa; margin-top: 6px; }
 .history-all { display: inline-block; margin-top: 16px; padding: 10px 22px; background: linear-gradient(135deg, #1a1a2e 0%, #0f3460 100%); color: #fff; text-decoration: none; border-radius: 8px; font-size: 13px; font-weight: 600; box-shadow: 0 2px 8px rgba(26,26,46,0.2); transition: all 0.2s; }
 .history-all:hover { background: linear-gradient(135deg, #3498db 0%, #1a5f9e 100%); }
 @media (max-width: 768px) {
@@ -2110,7 +2110,7 @@ updateFilterCounts();
 # ===== 主流程 =====
 
 def _gen_history_section():
-    """扫描 docs/archive/ 目录，生成历史周报链接板块（内嵌于报告末尾）"""
+    """扫描 docs/archive/ 目录，生成历史周报链接板块（内嵌于报告末尾）。按ISO周去重，每周只显示最新一期。"""
     archive_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'docs', 'archive')
     files = []
     if os.path.isdir(archive_dir):
@@ -2128,15 +2128,25 @@ def _gen_history_section():
     if not files:
         return '<div class="empty-state">暂无历史周报（本周为首次生成，下周起自动累积）</div>'
 
+    # 按ISO周去重：每周只保留最新一期
+    seen_weeks = set()
+    unique_files = []
+    for d, name, week in files:
+        if week and week in seen_weeks:
+            continue
+        if week:
+            seen_weeks.add(week)
+        unique_files.append((d, name, week))
+
     cards = []
-    for d, name, week in files[:12]:  # 最多显示最近12期
+    for d, name, week in unique_files[:12]:  # 最多显示最近12周
         week_badge = f'<div class="history-week">{week}</div>' if week else ''
-        cards.append(f'<a class="history-card" href="archive/{name}"><div class="history-date">{d}</div>{week_badge}</a>')
+        cards.append(f'<a class="history-card" href="archive/{name}">{week_badge}<div class="history-date">{d}</div></a>')
     cards_html = ''.join(cards)
 
     more = ''
-    if len(files) > 12:
-        more = f'<div style="margin-top:12px;font-size:12px;color:#8898aa">仅显示最近 12 期，共 {len(files)} 期</div>'
+    if len(unique_files) > 12:
+        more = f'<div style="margin-top:12px;font-size:12px;color:#8898aa">仅显示最近 12 周，共 {len(unique_files)} 周</div>'
     all_link = '<a class="history-all" href="archive/index.html">查看全部历史周报 →</a>'
 
     return f'<div class="history-grid">{cards_html}</div>{more}{all_link}'

@@ -67,9 +67,9 @@ jobs:
       - name: Send OKR Report Notifications
         if: always()
         env:
+          REPORT_PASSWORD: ${{ secrets.REPORT_PASSWORD }}
           DINGTALK_APP_KEY: ${{ secrets.DINGTALK_APP_KEY }}
           DINGTALK_APP_SECRET: ${{ secrets.DINGTALK_APP_SECRET }}
           DINGTALK_USER_ID: '17397552280041830'
-          DINGTALK_GROUP_WEBHOOK: ${{ secrets.DINGTALK_GROUP_WEBHOOK }}
           REPORT_URL: ${{ vars.REPORT_URL }}
         run: python cloud/okr_cloud_report.py --send-only

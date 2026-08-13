@@ -860,10 +860,12 @@ html { scroll-behavior: smooth; }
 .mdp-desc { display: none; margin-top: 8px; padding: 10px 12px; background: #f8f9fa; border-radius: 6px; font-size: 12px; color: #555; line-height: 1.8; white-space: pre-wrap; border-left: 3px solid #3498db; }
 .mdp-kr.expanded .mdp-desc { display: block; }
 .mdp-desc.empty { color: #b0bec5; border-left-color: #ccc; }
-.mdp-desc.diff { white-space: normal; }
+.mdp-desc.diff { white-space: pre-wrap; word-break: break-word; }
 .mdp-desc.diff .diff-line { margin: 2px 0; }
 .mdp-desc.diff .diff-same { color: #555; background: transparent; }
 .mdp-desc.diff .diff-added { background: #e8f8e8; color: #1a7d1a; font-weight: 600; }
+.mdp-desc.diff .diff-inline-add { background: #e8f8e8; color: #1a7d1a; font-weight: 600; border-radius: 3px; padding: 0 2px; }
+.mdp-desc.diff .diff-inline-del { background: #ffeaea; color: #c0392b; text-decoration: line-through; text-decoration-color: #e74c3c; border-radius: 3px; padding: 0 2px; }
 /* 进度分布图 */
 .dist-chart { background: #fff; border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
 .dist-title { font-size: 14px; font-weight: 700; color: #1a1a2e; margin-bottom: 12px; }
@@ -918,6 +920,11 @@ html { scroll-behavior: smooth; }
 .diff-line.diff-same { color: #b0b0b0; }
 .diff-line.diff-removed { background: #ffeaea; color: #c0392b; text-decoration: line-through; text-decoration-color: #e74c3c; }
 .diff-line.diff-added { background: #e8f8e8; color: #1a7d1a; font-weight: 600; }
+/* 本周有进展面板的变化图例 */
+.diff-legend { display: flex; gap: 18px; margin: 4px 0 12px; font-size: 11px; color: #8898aa; flex-wrap: wrap; }
+.diff-legend .lg-add, .diff-legend .lg-del { display: inline-flex; align-items: center; gap: 6px; }
+.diff-legend .lg-add::before { content: ''; width: 13px; height: 13px; background: #e8f8e8; border: 1px solid #1a7d1a; border-radius: 3px; }
+.diff-legend .lg-del::before { content: ''; width: 13px; height: 13px; background: #ffeaea; border: 1px solid #c0392b; border-radius: 3px; }
 @media (max-width: 768px) {
   .desc-diff { flex-direction: column; gap: 6px; }
   .desc-diff .desc-arrow { display: none; }
@@ -1343,7 +1350,7 @@ def _gen_stale_list(krs, a):
 </div>''')
     return ''.join(parts)
 
-def _mdp_kr_row(kr, a, extra_meta='', before_desc=None, after_desc=None):
+def _mdp_kr_row(kr, a, extra_meta='', before_desc=None, after_desc=None, type_tag=''):
     """指标详情面板中的单条KR（点击展开关键结果描述）"""
     prog = kr['progress']
     prog_str = f'{prog}%' if prog is not None else '未录入'
@@ -1364,10 +1371,9 @@ def _mdp_kr_row(kr, a, extra_meta='', before_desc=None, after_desc=None):
         meta_extra = f'{meta_extra} · {extra_meta}'
     desc = (kr.get('krDesc') or '').strip()
     if desc and desc not in ('无', '暂无', '-', '—', 'n/a', 'N/A'):
-        # 有周环比描述对比时，高亮本周新增/变化的内容
+        # 有周环比描述对比时，精确内联高亮本周变化（新增=绿底，删除=红删除线）
         if before_desc is not None and after_desc is not None and before_desc != after_desc:
-            _, after_html = _highlight_desc_diff(before_desc, after_desc)
-            desc_html = after_html
+            desc_html = _inline_desc_diff(before_desc, after_desc)
             desc_cls = 'diff'
         else:
             desc_html = _esc(desc)
@@ -1383,7 +1389,7 @@ def _mdp_kr_row(kr, a, extra_meta='', before_desc=None, after_desc=None):
     <span class="o-badge">{kr["o"]}</span>
     <span class="mdp-kr-name">{_esc(kr["kr"])}{blocker_tag}</span>
     <span class="mdp-kr-prog" style="color:{prog_color}">{prog_str}</span>
-    <span class="mdp-kr-meta">{_esc(followers)}{more_fol}{sites_str} · {_esc(meta_extra)}</span>
+    <span class="mdp-kr-meta">{_esc(followers)}{more_fol}{sites_str} · {_esc(meta_extra)}{type_tag}</span>
   </div>
   <div class="mdp-desc {desc_cls}">{desc_html}</div>
   {blocker_detail}
@@ -1405,7 +1411,7 @@ def _mdp_updated_row(k, a, comp_item=None):
                 before_desc = None
                 after_desc = None
         elif t == 'desc':
-            type_tag = ' <span class="mdp-delta-new">✎ 新增描述</span>'
+            type_tag = ' <span class="mdp-delta-new">✎ 描述更新</span>'
             before_desc = comp_item.get('before_desc', '')
             after_desc = comp_item.get('after_desc', '')
         elif t == 'new':
@@ -1413,7 +1419,7 @@ def _mdp_updated_row(k, a, comp_item=None):
             # 新增KR：整段描述都是新的，用空before高亮全部
             before_desc = ''
             after_desc = (k.get('krDesc') or '').strip()
-    return _mdp_kr_row(k, a, extra_meta=type_tag, before_desc=before_desc, after_desc=after_desc)
+    return _mdp_kr_row(k, a, before_desc=before_desc, after_desc=after_desc, type_tag=type_tag)
 
 def _gen_metric_panels(krs, a, comparison=None):
     """服务端渲染6个指标详情面板（默认隐藏，点击指标卡展开）"""
@@ -1467,8 +1473,13 @@ def _gen_metric_panels(krs, a, comparison=None):
         if not klist:
             panels[key] = f'<div class="mdp-header">{title}</div><div class="empty-state">无</div>'
         else:
-            rows = ''.join([_mdp_updated_row(k, a, item) if key == 'updated' else _mdp_kr_row(k, a) for k, item in klist])
-            panels[key] = f'<div class="mdp-header">{title}（{len(klist)}项）</div>' + rows
+            if key == 'updated' and comparison:
+                rows = ''.join([_mdp_updated_row(k, a, item) for k, item in klist])
+                legend = '<div class="diff-legend"><span class="lg-add">绿底 = 本周新增/修改</span><span class="lg-del">红删除线 = 本周删去</span></div>'
+                panels[key] = f'<div class="mdp-header">{title}（{len(klist)}项）</div>' + legend + rows
+            else:
+                rows = ''.join([_mdp_kr_row(k, a) for k, item in klist])
+                panels[key] = f'<div class="mdp-header">{title}（{len(klist)}项）</div>' + rows
     return panels
 
 def _gen_dist_chart(krs):
@@ -1551,80 +1562,44 @@ def _gen_comparison_html(a, comparison):
     html += '</div>'
     return html
 
-def _highlight_desc_diff(before_text, after_text):
-    """逐行对比 before/after 描述文本，生成带高亮的HTML。
-    返回 (before_html, after_html)：
-    - before栏：删除行标红+删除线，未变行灰色弱化
-    - after栏：新增行标绿，未变行灰色弱化
+def _inline_desc_diff(before_text, after_text):
+    """精确字符级内联diff：在本周文本基础上，标出到底哪些字变了。
+    - 新增/修改后的内容：绿底高亮
+    - 被删除的内容：红字删除线
+    用于'本周有进展'面板，使领导一眼看到变化点，且不重复展示未变文字。
     """
-    def _esc(s):
+    def _e(s):
         import html as _h
         return _h.escape(s, quote=False)
 
-    before_lines = before_text.split('\n') if before_text else []
-    after_lines = after_text.split('\n') if after_text else []
+    bt = before_text or ''
+    at = after_text or ''
+    if not bt:
+        # 首次填写/整段新增：全部绿底
+        if at:
+            return f'<span class="diff-inline-add">{_e(at)}</span>'
+        return '<span class="desc-empty">（无描述）</span>'
+    if not at:
+        # 已清空：整段红删除线
+        return f'<span class="diff-inline-del">{_e(bt)}</span>'
 
-    sm = difflib.SequenceMatcher(a=before_lines, b=after_lines, autojunk=False)
-    before_parts = []
-    after_parts = []
-
+    sm = difflib.SequenceMatcher(a=bt, b=at, autojunk=False)
+    out = []
     for tag, i1, i2, j1, j2 in sm.get_opcodes():
         if tag == 'equal':
-            # 未变化行：灰色弱化
-            for line in before_lines[i1:i2]:
-                before_parts.append(f'<span class="diff-line diff-same">{_esc(line)}</span>')
-            for line in after_lines[j1:j2]:
-                after_parts.append(f'<span class="diff-line diff-same">{_esc(line)}</span>')
+            out.append(_e(bt[i1:i2]))
+        elif tag == 'delete':
+            seg = bt[i1:i2]
+            out.append(f'<span class="diff-inline-del">{_e(seg)}</span>' if seg.strip() else _e(seg))
+        elif tag == 'insert':
+            seg = at[j1:j2]
+            out.append(f'<span class="diff-inline-add">{_e(seg)}</span>' if seg.strip() else _e(seg))
         elif tag == 'replace':
-            # 变化行：before标红删除线，after标绿
-            for line in before_lines[i1:i2]:
-                before_parts.append(f'<span class="diff-line diff-removed">{_esc(line)}</span>')
-            for line in after_lines[j1:j2]:
-                after_parts.append(f'<span class="diff-line diff-added">{_esc(line)}</span>')
-        elif tag == 'delete':
-            # 仅before有的行（被删除）：标红
-            for line in before_lines[i1:i2]:
-                before_parts.append(f'<span class="diff-line diff-removed">{_esc(line)}</span>')
-        elif tag == 'insert':
-            # 仅after有的行（新增）：标绿
-            for line in after_lines[j1:j2]:
-                after_parts.append(f'<span class="diff-line diff-added">{_esc(line)}</span>')
-
-    before_html = '\n'.join(before_parts) if before_parts else '<span class="desc-empty">（上周无描述）</span>'
-    after_html = '\n'.join(after_parts) if after_parts else '<span class="desc-empty">（已清空）</span>'
-    return before_html, after_html
-
-def _compact_desc_diff(before_text, after_text):
-    """紧凑版描述diff：只显示有变化的行（删除/新增），不重复展示未变行。
-    用于"本周变化一览"的关键结果描述变化分组，避免左右两栏重复显示相同内容。
-    """
-    def _esc(s):
-        import html as _h
-        return _h.escape(s, quote=False)
-
-    before_lines = before_text.split('\n') if before_text else []
-    after_lines = after_text.split('\n') if after_text else []
-
-    sm = difflib.SequenceMatcher(a=before_lines, b=after_lines, autojunk=False)
-    removed_parts = []
-    added_parts = []
-
-    for tag, i1, i2, j1, j2 in sm.get_opcodes():
-        if tag == 'replace':
-            for line in before_lines[i1:i2]:
-                removed_parts.append(f'<span class="diff-line diff-removed">{_esc(line)}</span>')
-            for line in after_lines[j1:j2]:
-                added_parts.append(f'<span class="diff-line diff-added">{_esc(line)}</span>')
-        elif tag == 'delete':
-            for line in before_lines[i1:i2]:
-                removed_parts.append(f'<span class="diff-line diff-removed">{_esc(line)}</span>')
-        elif tag == 'insert':
-            for line in after_lines[j1:j2]:
-                added_parts.append(f'<span class="diff-line diff-added">{_esc(line)}</span>')
-
-    before_html = '\n'.join(removed_parts) if removed_parts else '<span class="desc-empty">（无删除内容）</span>'
-    after_html = '\n'.join(added_parts) if added_parts else '<span class="desc-empty">（无新增内容）</span>'
-    return before_html, after_html
+            del_seg = bt[i1:i2]
+            add_seg = at[j1:j2]
+            out.append(f'<span class="diff-inline-del">{_e(del_seg)}</span>' if del_seg.strip() else _e(del_seg))
+            out.append(f'<span class="diff-inline-add">{_e(add_seg)}</span>' if add_seg.strip() else _e(add_seg))
+    return ''.join(out)
 
 def _gen_changes_overview(a, comparison):
     """本周变化一览：逐条展示KR的进度变化和关键结果描述变化（before→after）"""
@@ -1657,42 +1632,6 @@ def _gen_changes_overview(a, comparison):
 </div>''')
     else:
         parts.append('<div class="change-empty">本周无进度提升项</div>')
-    parts.append('</div>')
-
-    # ── 关键结果描述变化 ──
-    du = comparison.get('desc_updated', [])
-    parts.append(f'<div class="change-group">')
-    parts.append(f'<div class="change-group-title">📝 关键结果描述变化 <span class="change-count">{len(du)}项</span></div>')
-    if du:
-        for k in du:
-            is_new = k.get('is_new', False)
-            tag = '<span class="change-tag tag-new">首次填写</span>' if is_new else '<span class="change-tag tag-update">描述更新</span>'
-            before_d = k.get('before_desc', '')
-            after_d = k.get('after_desc', '')
-            # 紧凑diff：只显示有变化的行，避免未变行在左右两栏重复展示
-            if before_d and len(before_d) >= 2 and after_d:
-                before_html, after_html = _compact_desc_diff(before_d, after_d)
-                compact_cls = ' compact'
-            else:
-                before_html = f'<span class="desc-empty">（上周无描述）</span>' if not before_d or len(before_d) < 2 else _esc(before_d)
-                after_html = _esc(after_d) if after_d else '<span class="desc-empty">（已清空）</span>'
-                compact_cls = ''
-            parts.append(f'''<div class="change-item">
-  <div class="change-kr"><span class="o-tag">{_esc(k["o"])}</span>{_esc(k["kr"])} {tag}</div>
-  <div class="desc-diff">
-    <div class="desc-col">
-      <div class="desc-label">上周</div>
-      <div class="desc-text before{compact_cls}">{before_html}</div>
-    </div>
-    <div class="desc-arrow">→</div>
-    <div class="desc-col">
-      <div class="desc-label">本周</div>
-      <div class="desc-text after{compact_cls}">{after_html}</div>
-    </div>
-  </div>
-</div>''')
-    else:
-        parts.append('<div class="change-empty">本周无描述变化</div>')
     parts.append('</div>')
 
     # ── 新增KR ──

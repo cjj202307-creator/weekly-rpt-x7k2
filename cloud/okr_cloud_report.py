@@ -8,7 +8,9 @@
   DINGTALK_APP_SECRET - 钉钉应用AppSecret
   DINGTALK_USER_ID    - 接收人userId（默认：17397552280041830）
   REPORT_URL          - 报告URL（必填，无URL拒绝发送避免重复/无链接推送）
-  DINGTALK_GROUP_WEBHOOK - 钉钉群机器人webhook地址（可选；配置后额外推送到群，与个人推送并存）
+  DINGTALK_GROUP_WEBHOOK - 钉钉群机器人webhook（可选；配置后推送到群，与个人推送并存）
+  DINGTALK_GROUP_WEBHOOK_SITE_DIGITAL - 第二个群webhook（网点数字化，可选）
+  DINGTALK_GROUP_WEBHOOK_MANAGER - 第三个群webhook（全国网点部门经理群，可选）
 
 需要的应用权限（在钉钉开发者后台申请）：
   1. Notable.Base.Read.All  - AI表格应用读权限
@@ -39,6 +41,7 @@ USER_ID = os.environ.get('DINGTALK_USER_ID', '17397552280041830')
 REPORT_URL = os.environ.get('REPORT_URL', '')  # 报告URL（GitHub Pages或CloudStudio）
 GROUP_WEBHOOK = os.environ.get('DINGTALK_GROUP_WEBHOOK', '')  # 钉钉群机器人webhook（推群，可选）
 GROUP_WEBHOOK_SITE_DIGITAL = os.environ.get('DINGTALK_GROUP_WEBHOOK_SITE_DIGITAL', '')  # 第二个群：网点数字化
+GROUP_WEBHOOK_MANAGER = os.environ.get('DINGTALK_GROUP_WEBHOOK_MANAGER', '')  # 第三个群：全国网点部门经理群
 LLM_API_KEY = os.environ.get('DASHSCOPE_API_KEY', '')  # DeepSeek API Key（AI洞察用，可选；不配置则跳过。环境变量名沿用DASHSCOPE_API_KEY，workflow无需改）
 LLM_MODEL = os.environ.get('LLM_MODEL') or 'deepseek-chat'    # 模型名，默认 deepseek-chat（空字符串也回退到默认值）
 ROBOT_CODE = APP_KEY  # AppKey即robotCode
@@ -165,10 +168,11 @@ def send_robot_message(access_token, title, markdown_text):
 def send_group_message(webhook, title, markdown_text):
     """通过钉钉群自定义机器人webhook发送Markdown消息到群（无安全验证方式）
 
-    与个人单聊推送并存：配置了 DINGTALK_GROUP_WEBHOOK 时额外推送到群。
+    与个人单聊推送并存：配置了任一 DINGTALK_GROUP_WEBHOOK* 群webhook 时，
+    对应群会额外收到推送（main 中遍历所有已配置的群）。
     """
     if not webhook:
-        print('   未配置 DINGTALK_GROUP_WEBHOOK，跳过群推送')
+        print('   未配置该群 webhook，跳过群推送')
         return None
     body = {
         'msgtype': 'markdown',
@@ -2360,6 +2364,7 @@ def main():
         group_webhooks = [
             ('DINGTALK_GROUP_WEBHOOK', GROUP_WEBHOOK),
             ('DINGTALK_GROUP_WEBHOOK_SITE_DIGITAL', GROUP_WEBHOOK_SITE_DIGITAL),
+            ('DINGTALK_GROUP_WEBHOOK_MANAGER', GROUP_WEBHOOK_MANAGER),
         ]
         for gname, gwh in group_webhooks:
             if not gwh:

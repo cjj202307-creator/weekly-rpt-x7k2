@@ -549,7 +549,7 @@ def get_iso_week(d=None):
     iso = d.isocalendar()
     return f'W{iso[1]:02d}'
 
-def build_notify_md(today_str, report_url, week_str=''):
+def build_notify_md(today_str, report_url, week_str='', password=''):
     """极简钉钉通知：仅标题 + 一句引导 + 链接，完整内容见网页报告。"""
     title_suffix = f' {week_str}' if week_str else ''
     lines = []
@@ -561,6 +561,9 @@ def build_notify_md(today_str, report_url, week_str=''):
         lines.append(f'[📊 查看完整报告]({report_url})')
     else:
         lines.append('> 报告链接暂未配置（REPORT_URL 为空）')
+    if password:
+        lines.append('')
+        lines.append(f'🔒 访问密码：{password}')
     return '\n'.join(lines)
 
 
@@ -2536,7 +2539,7 @@ def main():
 
         # 6. 生成钉钉通知（极简版：标题 + 链接，详情见网页报告）
         print('6. 生成钉钉通知（极简）...')
-        md = build_notify_md(today_str, REPORT_URL, week_str)
+        md = build_notify_md(today_str, REPORT_URL, week_str, password=REPORT_PASSWORD)
         print(f'   报告URL: {REPORT_URL}')
 
         # 7. 获取token并发送钉钉消息（个人单聊 + 群）

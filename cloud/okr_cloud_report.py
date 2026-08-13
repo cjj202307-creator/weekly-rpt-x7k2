@@ -866,6 +866,16 @@ html { scroll-behavior: smooth; }
 .mdp-desc.diff .diff-added { background: #e8f8e8; color: #1a7d1a; font-weight: 600; }
 .mdp-desc.diff .diff-inline-add { background: #e8f8e8; color: #1a7d1a; font-weight: 600; border-radius: 3px; padding: 0 2px; }
 .mdp-desc.diff .diff-inline-del { background: #ffeaea; color: #c0392b; text-decoration: line-through; text-decoration-color: #e74c3c; border-radius: 3px; padding: 0 2px; }
+/* 本周新增进展面板：左右对照样式 */
+.mdp-kr.compare-row { background: #fafbfc; border-radius: 10px; padding: 12px 14px; margin: 8px 0; border: 1px solid rgba(0,0,0,0.04); }
+.mdp-kr.compare-row .mdp-kr-row { cursor: default; }
+.mdp-kr.compare-row .desc-diff.compact { margin-top: 10px; background: #fff; border-radius: 8px; padding: 12px; border: 1px solid rgba(0,0,0,0.04); }
+.mdp-kr.compare-row .desc-diff.compact .desc-text { white-space: normal; }
+.mdp-kr.compare-row .desc-diff.compact .diff-line { margin: 2px 0; padding: 2px 6px; border-radius: 4px; }
+.mdp-kr.compare-row .desc-diff.compact .diff-same { color: #888; }
+.mdp-kr.compare-row .desc-diff.compact .diff-removed { background: #ffeaea; color: #c0392b; text-decoration: line-through; text-decoration-color: #e74c3c; }
+.mdp-kr.compare-row .desc-diff.compact .diff-added { background: #e8f8e8; color: #1a7d1a; font-weight: 600; }
+.mdp-kr.compare-row .desc-diff.compact .desc-empty { color: #ccc; font-style: italic; padding: 2px 6px; }
 /* 进度分布图 */
 .dist-chart { background: #fff; border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
 .dist-title { font-size: 14px; font-weight: 700; color: #1a1a2e; margin-bottom: 12px; }
@@ -922,9 +932,10 @@ html { scroll-behavior: smooth; }
 .diff-line.diff-added { background: #e8f8e8; color: #1a7d1a; font-weight: 600; }
 /* 本周有进展面板的变化图例 */
 .diff-legend { display: flex; gap: 18px; margin: 4px 0 12px; font-size: 11px; color: #8898aa; flex-wrap: wrap; }
-.diff-legend .lg-add, .diff-legend .lg-del { display: inline-flex; align-items: center; gap: 6px; }
+.diff-legend .lg-add, .diff-legend .lg-del, .diff-legend .lg-same { display: inline-flex; align-items: center; gap: 6px; }
 .diff-legend .lg-add::before { content: ''; width: 13px; height: 13px; background: #e8f8e8; border: 1px solid #1a7d1a; border-radius: 3px; }
 .diff-legend .lg-del::before { content: ''; width: 13px; height: 13px; background: #ffeaea; border: 1px solid #c0392b; border-radius: 3px; }
+.diff-legend .lg-same::before { content: ''; width: 13px; height: 13px; background: #f5f5f5; border: 1px solid #888; border-radius: 3px; }
 @media (max-width: 768px) {
   .desc-diff { flex-direction: column; gap: 6px; }
   .desc-diff .desc-arrow { display: none; }
@@ -1421,6 +1432,51 @@ def _mdp_updated_row(k, a, comp_item=None):
             after_desc = (k.get('krDesc') or '').strip()
     return _mdp_kr_row(k, a, before_desc=before_desc, after_desc=after_desc, type_tag=type_tag)
 
+def _mdp_updated_compare_row(k, a, comp_item=None):
+    """'本周新增进展'面板中的KR行：左右对照展示上周vs本周描述变化（截图效果）。"""
+    prog = k['progress']
+    prog_str = f'{prog}%' if prog is not None else '未录入'
+    prog_color = _prog_color(prog)
+
+    type_tag = ''
+    before_desc = ''
+    after_desc = (k.get('krDesc') or '').strip()
+    if comp_item:
+        t = comp_item.get('type', '')
+        if t == 'progress':
+            type_tag = ' <span class="mdp-delta-up">↗ 进度提升</span>'
+            before_desc = comp_item.get('before_desc', '')
+            after_desc = comp_item.get('after_desc', '')
+        elif t == 'desc':
+            type_tag = ' <span class="mdp-delta-new">✎ 描述更新</span>'
+            before_desc = comp_item.get('before_desc', '')
+            after_desc = comp_item.get('after_desc', '')
+        elif t == 'new':
+            type_tag = ' <span class="mdp-delta-new">NEW 新增KR</span>'
+            before_desc = ''
+            after_desc = (k.get('krDesc') or '').strip()
+
+    before_html, after_html = _side_by_side_desc_diff(before_desc, after_desc)
+
+    return f'''<div class="mdp-kr compare-row">
+  <div class="mdp-kr-row" style="cursor:default">
+    <span class="o-badge">{k["o"]}</span>
+    <span class="mdp-kr-name">{_esc(k["kr"])}{type_tag}</span>
+    <span class="mdp-kr-prog" style="color:{prog_color}">{prog_str}</span>
+  </div>
+  <div class="desc-diff compact">
+    <div class="desc-col">
+      <div class="desc-label">上周</div>
+      <div class="desc-text before">{before_html}</div>
+    </div>
+    <div class="desc-arrow">→</div>
+    <div class="desc-col">
+      <div class="desc-label">本周</div>
+      <div class="desc-text after">{after_html}</div>
+    </div>
+  </div>
+</div>'''
+
 def _gen_metric_panels(krs, a, comparison=None):
     """服务端渲染6个指标详情面板（默认隐藏，点击指标卡展开）"""
     panels = {}
@@ -1473,9 +1529,9 @@ def _gen_metric_panels(krs, a, comparison=None):
         if not klist:
             panels[key] = f'<div class="mdp-header">{title}</div><div class="empty-state">无</div>'
         else:
-            if key == 'updated' and comparison:
-                rows = ''.join([_mdp_updated_row(k, a, item) for k, item in klist])
-                legend = '<div class="diff-legend"><span class="lg-add">绿底 = 本周新增/修改</span><span class="lg-del">红删除线 = 本周删去</span></div>'
+            if key == 'updated':
+                rows = ''.join([_mdp_updated_compare_row(k, a, item) for k, item in klist])
+                legend = '<div class="diff-legend"><span class="lg-add">绿底 = 本周新增/修改</span><span class="lg-del">红删除线 = 本周删去</span><span class="lg-same">灰色 = 未变化</span></div>'
                 panels[key] = f'<div class="mdp-header">{title}（{len(klist)}项）</div>' + legend + rows
             else:
                 rows = ''.join([_mdp_kr_row(k, a) for k, item in klist])
@@ -1600,6 +1656,46 @@ def _inline_desc_diff(before_text, after_text):
             out.append(f'<span class="diff-inline-del">{_e(del_seg)}</span>' if del_seg.strip() else _e(del_seg))
             out.append(f'<span class="diff-inline-add">{_e(add_seg)}</span>' if add_seg.strip() else _e(add_seg))
     return ''.join(out)
+
+def _side_by_side_desc_diff(before_text, after_text):
+    """行级左右对照diff：返回 (before_html, after_html)。
+    - 删除行：红底删除线（before栏）
+    - 新增行：绿底高亮（after栏）
+    - 未变行：正常灰色显示
+    用于'本周新增进展'面板，实现截图式的上周↔本周左右对照效果。
+    """
+    def _e(s):
+        import html as _h
+        return _h.escape(s, quote=False)
+
+    before_lines = before_text.split('\n') if before_text else []
+    after_lines = after_text.split('\n') if after_text else []
+
+    sm = difflib.SequenceMatcher(a=before_lines, b=after_lines, autojunk=False)
+    before_parts = []
+    after_parts = []
+
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == 'equal':
+            for line in before_lines[i1:i2]:
+                before_parts.append(f'<div class="diff-line diff-same">{_e(line)}</div>')
+            for line in after_lines[j1:j2]:
+                after_parts.append(f'<div class="diff-line diff-same">{_e(line)}</div>')
+        elif tag == 'replace':
+            for line in before_lines[i1:i2]:
+                before_parts.append(f'<div class="diff-line diff-removed">{_e(line)}</div>')
+            for line in after_lines[j1:j2]:
+                after_parts.append(f'<div class="diff-line diff-added">{_e(line)}</div>')
+        elif tag == 'delete':
+            for line in before_lines[i1:i2]:
+                before_parts.append(f'<div class="diff-line diff-removed">{_e(line)}</div>')
+        elif tag == 'insert':
+            for line in after_lines[j1:j2]:
+                after_parts.append(f'<div class="diff-line diff-added">{_e(line)}</div>')
+
+    before_html = ''.join(before_parts) if before_parts else '<div class="desc-empty">（上周无描述）</div>'
+    after_html = ''.join(after_parts) if after_parts else '<div class="desc-empty">（已清空）</div>'
+    return before_html, after_html
 
 def _gen_changes_overview(a, comparison):
     """本周变化一览：逐条展示KR的进度变化和关键结果描述变化（before→after）"""
@@ -1918,8 +2014,6 @@ def generate_html(a, today_str, week_str='', comparison=None, ai_insight=None):
 
     # 服务端渲染各板块
     dist_chart_html = _gen_dist_chart(krs)
-    comparison_html = _gen_comparison_html(a, comparison)
-    changes_html = _gen_changes_overview(a, comparison)
     ai_html = _gen_ai_insight_html(ai_insight)
     status_donut_html = _gen_status_donut(krs, a)
     o_bar_chart_html = _gen_o_bar_chart(a, comparison)
@@ -1974,8 +2068,6 @@ def generate_html(a, today_str, week_str='', comparison=None, ai_insight=None):
   <a href="#sec-summary" class="nav-highlight">本周概况</a>
   <a href="#sec-ai" class="nav-highlight">智能洞察</a>
   <a href="#sec-metrics" class="nav-highlight">指标</a>
-  <a href="#sec-compare" class="nav-highlight">周环比</a>
-  <a href="#sec-changes" class="nav-highlight">本周变化</a>
   <a href="#sec-ochart" class="nav-highlight">进度可视化</a>
   <a href="#sec-risk" class="nav-highlight">重点关注</a>
   <a href="#sec-detail" class="nav-highlight">KR明细</a>
@@ -2023,16 +2115,6 @@ def generate_html(a, today_str, week_str='', comparison=None, ai_insight=None):
 <div class="metric-detail-panel" id="mdp-overdue">{metric_panels["overdue"]}</div>
 <div class="metric-detail-panel" id="mdp-stale">{metric_panels["stale"]}</div>
 <div class="metric-detail-panel" id="mdp-untracked">{metric_panels["untracked"]}</div>
-
-<div class="section" id="sec-compare">
-  <h2>周环比变化</h2>
-  {comparison_html}
-</div>
-
-<div class="section" id="sec-changes">
-  <h2>本周变化一览 <small style="font-weight:400;color:#8898aa;font-size:12px;margin-left:8px">较上周{comparison['prev_week'] if comparison else ''}的关键结果描述变化</small></h2>
-  {changes_html}
-</div>
 
 <div class="section" id="sec-ochart">
   <h2>进度可视化</h2>

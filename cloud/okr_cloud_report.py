@@ -910,6 +910,7 @@ html { scroll-behavior: smooth; }
 .desc-diff .desc-text { font-size: 13px; line-height: 1.7; color: #555; word-break: break-word; white-space: pre-wrap; }
 .desc-diff .desc-text.before { color: #999; }
 .desc-diff .desc-text.after { color: #1a1a2e; font-weight: 500; }
+.desc-diff .desc-text.compact { white-space: normal; }
 .desc-diff .desc-arrow { font-size: 18px; color: #3498db; flex-shrink: 0; padding-top: 14px; }
 .desc-diff .desc-empty { font-size: 13px; color: #ccc; font-style: italic; }
 /* 逐行diff高亮 */
@@ -1593,6 +1594,38 @@ def _highlight_desc_diff(before_text, after_text):
     after_html = '\n'.join(after_parts) if after_parts else '<span class="desc-empty">（已清空）</span>'
     return before_html, after_html
 
+def _compact_desc_diff(before_text, after_text):
+    """紧凑版描述diff：只显示有变化的行（删除/新增），不重复展示未变行。
+    用于"本周变化一览"的关键结果描述变化分组，避免左右两栏重复显示相同内容。
+    """
+    def _esc(s):
+        import html as _h
+        return _h.escape(s, quote=False)
+
+    before_lines = before_text.split('\n') if before_text else []
+    after_lines = after_text.split('\n') if after_text else []
+
+    sm = difflib.SequenceMatcher(a=before_lines, b=after_lines, autojunk=False)
+    removed_parts = []
+    added_parts = []
+
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == 'replace':
+            for line in before_lines[i1:i2]:
+                removed_parts.append(f'<span class="diff-line diff-removed">{_esc(line)}</span>')
+            for line in after_lines[j1:j2]:
+                added_parts.append(f'<span class="diff-line diff-added">{_esc(line)}</span>')
+        elif tag == 'delete':
+            for line in before_lines[i1:i2]:
+                removed_parts.append(f'<span class="diff-line diff-removed">{_esc(line)}</span>')
+        elif tag == 'insert':
+            for line in after_lines[j1:j2]:
+                added_parts.append(f'<span class="diff-line diff-added">{_esc(line)}</span>')
+
+    before_html = '\n'.join(removed_parts) if removed_parts else '<span class="desc-empty">（无删除内容）</span>'
+    after_html = '\n'.join(added_parts) if added_parts else '<span class="desc-empty">（无新增内容）</span>'
+    return before_html, after_html
+
 def _gen_changes_overview(a, comparison):
     """本周变化一览：逐条展示KR的进度变化和关键结果描述变化（before→after）"""
     if not comparison:
@@ -1636,23 +1669,25 @@ def _gen_changes_overview(a, comparison):
             tag = '<span class="change-tag tag-new">首次填写</span>' if is_new else '<span class="change-tag tag-update">描述更新</span>'
             before_d = k.get('before_desc', '')
             after_d = k.get('after_desc', '')
-            # 使用逐行diff高亮：删除行标红、新增行标绿、未变行灰色
+            # 紧凑diff：只显示有变化的行，避免未变行在左右两栏重复展示
             if before_d and len(before_d) >= 2 and after_d:
-                before_html, after_html = _highlight_desc_diff(before_d, after_d)
+                before_html, after_html = _compact_desc_diff(before_d, after_d)
+                compact_cls = ' compact'
             else:
                 before_html = f'<span class="desc-empty">（上周无描述）</span>' if not before_d or len(before_d) < 2 else _esc(before_d)
                 after_html = _esc(after_d) if after_d else '<span class="desc-empty">（已清空）</span>'
+                compact_cls = ''
             parts.append(f'''<div class="change-item">
   <div class="change-kr"><span class="o-tag">{_esc(k["o"])}</span>{_esc(k["kr"])} {tag}</div>
   <div class="desc-diff">
     <div class="desc-col">
       <div class="desc-label">上周</div>
-      <div class="desc-text before">{before_html}</div>
+      <div class="desc-text before{compact_cls}">{before_html}</div>
     </div>
     <div class="desc-arrow">→</div>
     <div class="desc-col">
       <div class="desc-label">本周</div>
-      <div class="desc-text after">{after_html}</div>
+      <div class="desc-text after{compact_cls}">{after_html}</div>
     </div>
   </div>
 </div>''')

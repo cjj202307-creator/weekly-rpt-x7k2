@@ -3,7 +3,7 @@ name: OKR Weekly Report
 on:
   schedule:
     # 每周五 00:30 UTC = 北京时间 周五 08:30
-       - cron: '30 0 * * 5'
+    - cron: '30 0 * * 5'
   workflow_dispatch:
 
 # deploy-pages 需要 pages:write + id-token:write；contents:write 用于 git push 历史
@@ -67,7 +67,6 @@ jobs:
       - name: Send OKR Report Notifications
         if: always()
         env:
-          REPORT_PASSWORD: ${{ secrets.REPORT_PASSWORD }}
           DINGTALK_APP_KEY: ${{ secrets.DINGTALK_APP_KEY }}
           DINGTALK_APP_SECRET: ${{ secrets.DINGTALK_APP_SECRET }}
           DINGTALK_USER_ID: '17397552280041830'

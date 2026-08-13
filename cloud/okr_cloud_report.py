@@ -462,6 +462,10 @@ def compare_with_previous(a, prev_snapshot):
     # 按recordId匹配后的KR
     common_ids = set(curr_krs.keys()) & set(prev_krs.keys())
 
+    # 描述文本标准化（进度提升、描述变化都会用到）
+    def _norm_desc(d):
+        return (d or '').strip()
+
     # 进度提升的KR
     progress_gained = []
     for rid in common_ids:
@@ -472,13 +476,13 @@ def compare_with_previous(a, prev_snapshot):
         if cur_p is not None and pre_p is not None and cur_p > pre_p:
             progress_gained.append({
                 'recordId': rid, 'o': cur['o'], 'kr': cur['kr'],
-                'before': pre_p, 'after': cur_p, 'delta': cur_p - pre_p
+                'before': pre_p, 'after': cur_p, 'delta': cur_p - pre_p,
+                'before_desc': _norm_desc(pre.get('krDesc')),
+                'after_desc': _norm_desc(cur.get('krDesc'))
             })
     progress_gained.sort(key=lambda x: -x['delta'])
 
     # 描述有变化的KR（新增或修改）——捕获所有文本变化，含before/after原文
-    def _norm_desc(d):
-        return (d or '').strip()
     desc_updated = []
     for rid in common_ids:
         cur = curr_krs[rid]
@@ -856,6 +860,10 @@ html { scroll-behavior: smooth; }
 .mdp-desc { display: none; margin-top: 8px; padding: 10px 12px; background: #f8f9fa; border-radius: 6px; font-size: 12px; color: #555; line-height: 1.8; white-space: pre-wrap; border-left: 3px solid #3498db; }
 .mdp-kr.expanded .mdp-desc { display: block; }
 .mdp-desc.empty { color: #b0bec5; border-left-color: #ccc; }
+.mdp-desc.diff { white-space: normal; }
+.mdp-desc.diff .diff-line { margin: 2px 0; }
+.mdp-desc.diff .diff-same { color: #555; background: transparent; }
+.mdp-desc.diff .diff-added { background: #e8f8e8; color: #1a7d1a; font-weight: 600; }
 /* 进度分布图 */
 .dist-chart { background: #fff; border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
 .dist-title { font-size: 14px; font-weight: 700; color: #1a1a2e; margin-bottom: 12px; }
@@ -1334,7 +1342,7 @@ def _gen_stale_list(krs, a):
 </div>''')
     return ''.join(parts)
 
-def _mdp_kr_row(kr, a, extra_meta=''):
+def _mdp_kr_row(kr, a, extra_meta='', before_desc=None, after_desc=None):
     """指标详情面板中的单条KR（点击展开关键结果描述）"""
     prog = kr['progress']
     prog_str = f'{prog}%' if prog is not None else '未录入'
@@ -1355,8 +1363,14 @@ def _mdp_kr_row(kr, a, extra_meta=''):
         meta_extra = f'{meta_extra} · {extra_meta}'
     desc = (kr.get('krDesc') or '').strip()
     if desc and desc not in ('无', '暂无', '-', '—', 'n/a', 'N/A'):
-        desc_html = _esc(desc)
-        desc_cls = ''
+        # 有周环比描述对比时，高亮本周新增/变化的内容
+        if before_desc is not None and after_desc is not None and before_desc != after_desc:
+            _, after_html = _highlight_desc_diff(before_desc, after_desc)
+            desc_html = after_html
+            desc_cls = 'diff'
+        else:
+            desc_html = _esc(desc)
+            desc_cls = ''
     else:
         desc_html = '暂无进展描述'
         desc_cls = 'empty'
@@ -1374,16 +1388,31 @@ def _mdp_kr_row(kr, a, extra_meta=''):
   {blocker_detail}
 </div>'''
 
-def _mdp_updated_row(k, a, comp_type=''):
+def _mdp_updated_row(k, a, comp_item=None):
     """指标面板中'本周有进展'的KR行（支持周环比标记）"""
     type_tag = ''
-    if comp_type == 'progress':
-        type_tag = ' <span class="mdp-delta-up">↗ 进度提升</span>'
-    elif comp_type == 'desc':
-        type_tag = ' <span class="mdp-delta-new">✎ 新增描述</span>'
-    elif comp_type == 'new':
-        type_tag = ' <span class="mdp-delta-new">NEW 新增KR</span>'
-    return _mdp_kr_row(k, a, extra_meta=type_tag)
+    before_desc = None
+    after_desc = None
+    if comp_item:
+        t = comp_item.get('type', '')
+        if t == 'progress':
+            type_tag = ' <span class="mdp-delta-up">↗ 进度提升</span>'
+            # 进度提升KR若同时有描述变化，也高亮出来
+            before_desc = comp_item.get('before_desc', '')
+            after_desc = comp_item.get('after_desc', '')
+            if before_desc == after_desc:
+                before_desc = None
+                after_desc = None
+        elif t == 'desc':
+            type_tag = ' <span class="mdp-delta-new">✎ 新增描述</span>'
+            before_desc = comp_item.get('before_desc', '')
+            after_desc = comp_item.get('after_desc', '')
+        elif t == 'new':
+            type_tag = ' <span class="mdp-delta-new">NEW 新增KR</span>'
+            # 新增KR：整段描述都是新的，用空before高亮全部
+            before_desc = ''
+            after_desc = (k.get('krDesc') or '').strip()
+    return _mdp_kr_row(k, a, extra_meta=type_tag, before_desc=before_desc, after_desc=after_desc)
 
 def _gen_metric_panels(krs, a, comparison=None):
     """服务端渲染6个指标详情面板（默认隐藏，点击指标卡展开）"""
@@ -1416,11 +1445,11 @@ def _gen_metric_panels(krs, a, comparison=None):
         for item in updated_list:
             for k in krs:
                 if k['recordId'] == item['recordId']:
-                    updated_krs.append((k, item['type']))
+                    updated_krs.append((k, item))
                     break
         updated_title = f'本周新增进展的KR（较上周{comparison["prev_week"]}）'
     else:
-        updated_krs = [(k, '') for k in krs if a['has_update'](k)]
+        updated_krs = [(k, None) for k in krs if a['has_update'](k)]
         updated_title = '本周有实质进展的KR（首周基准：所有有描述更新的KR）'
     # 所有KR列表统一按 O1→O2→O3→O4 排序
     updated_krs = sorted(updated_krs, key=lambda x: _o_sort_key(x[0]))
@@ -1428,16 +1457,16 @@ def _gen_metric_panels(krs, a, comparison=None):
     # 3-6. 其他KR列表类指标
     kr_groups = {
         'updated': (updated_title, updated_krs),
-        'done': ('已达成的KR', sorted([(k, '') for k in krs if k['progress'] == 100], key=lambda x: _o_sort_key(x[0]))),
-        'overdue': ('超过目标日期未完成的KR', sorted([(k, '') for k in krs if a['is_overdue'](k)], key=lambda x: _o_sort_key(x[0]))),
-        'stale': ('停滞KR（无进展描述或进度为0）', sorted([(k, '') for k in krs if a['is_stale'](k)], key=lambda x: _o_sort_key(x[0]))),
-        'untracked': ('未录入进度的KR', sorted([(k, '') for k in krs if k['progress'] is None], key=lambda x: _o_sort_key(x[0]))),
+        'done': ('已达成的KR', sorted([(k, None) for k in krs if k['progress'] == 100], key=lambda x: _o_sort_key(x[0]))),
+        'overdue': ('超过目标日期未完成的KR', sorted([(k, None) for k in krs if a['is_overdue'](k)], key=lambda x: _o_sort_key(x[0]))),
+        'stale': ('停滞KR（无进展描述或进度为0）', sorted([(k, None) for k in krs if a['is_stale'](k)], key=lambda x: _o_sort_key(x[0]))),
+        'untracked': ('未录入进度的KR', sorted([(k, None) for k in krs if k['progress'] is None], key=lambda x: _o_sort_key(x[0]))),
     }
     for key, (title, klist) in kr_groups.items():
         if not klist:
             panels[key] = f'<div class="mdp-header">{title}</div><div class="empty-state">无</div>'
         else:
-            rows = ''.join([_mdp_updated_row(k, a, t) if key == 'updated' else _mdp_kr_row(k, a) for k, t in klist])
+            rows = ''.join([_mdp_updated_row(k, a, item) if key == 'updated' else _mdp_kr_row(k, a) for k, item in klist])
             panels[key] = f'<div class="mdp-header">{title}（{len(klist)}项）</div>' + rows
     return panels
 

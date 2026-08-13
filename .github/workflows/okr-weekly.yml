@@ -3,7 +3,7 @@ name: OKR Weekly Report
 on:
   schedule:
     # 每周五 00:30 UTC = 北京时间 周五 08:30
-    - cron: '30 7 * * 4'
+    - cron: '0 8 * * 4'
   workflow_dispatch:
 
 # deploy-pages 需要 pages:write + id-token:write；contents:write 用于 git push 历史

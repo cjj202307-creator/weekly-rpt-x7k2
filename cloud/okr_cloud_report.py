@@ -11,6 +11,7 @@
   DINGTALK_GROUP_WEBHOOK - 钉钉群机器人webhook（可选；配置后推送到群，与个人推送并存）
   DINGTALK_GROUP_WEBHOOK_SITE_DIGITAL - 第二个群webhook（网点数字化，可选）
   DINGTALK_GROUP_WEBHOOK_MANAGER - 第三个群webhook（全国网点部门经理群，可选）
+  REPORT_PASSWORD      - 报告访问密码（可选；设置后HTML内容加密，打开需输入密码）
 
 需要的应用权限（在钉钉开发者后台申请）：
   1. Notable.Base.Read.All  - AI表格应用读权限
@@ -44,6 +45,7 @@ GROUP_WEBHOOK_SITE_DIGITAL = os.environ.get('DINGTALK_GROUP_WEBHOOK_SITE_DIGITAL
 GROUP_WEBHOOK_MANAGER = os.environ.get('DINGTALK_GROUP_WEBHOOK_MANAGER', '')  # 第三个群：全国网点部门经理群
 LLM_API_KEY = os.environ.get('DASHSCOPE_API_KEY', '')  # DeepSeek API Key（AI洞察用，可选；不配置则跳过。环境变量名沿用DASHSCOPE_API_KEY，workflow无需改）
 LLM_MODEL = os.environ.get('LLM_MODEL') or 'deepseek-chat'    # 模型名，默认 deepseek-chat（空字符串也回退到默认值）
+REPORT_PASSWORD = os.environ.get('REPORT_PASSWORD', '')  # 报告访问密码（可选；设置后HTML内容加密，打开需输入密码）
 ROBOT_CODE = APP_KEY  # AppKey即robotCode
 BASE_ID = 'EpGBa2Lm8azv7rn5uEONbq3rWgN7R35y'
 TABLE_ID = '77lhl1x'
@@ -2301,6 +2303,110 @@ def _gen_archive_index(archive_dir):
         f.write(index_html)
 
 
+def protect_html(html_content, password):
+    """用密码加密HTML内容，生成需要密码才能查看的页面。
+
+    加密：PBKDF2(10000轮)派生32字节密钥 → SHA-256计数器流密码 → XOR
+    解密：浏览器 Web Crypto API（原生，无需第三方JS库）
+    验证：密文前加 <!--OKR--> 标记，解密后检查标记判断密码是否正确
+    """
+    import hashlib
+    import base64
+    import secrets
+
+    salt = secrets.token_bytes(16)
+    key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 10000, dklen=32)
+
+    # 加验证标记
+    marked_content = '<!--OKR-->' + html_content
+    content_bytes = marked_content.encode('utf-8')
+
+    # SHA-256计数器模式流密码
+    encrypted = bytearray(len(content_bytes))
+    counter = 0
+    pos = 0
+    while pos < len(content_bytes):
+        block = hashlib.sha256(key + counter.to_bytes(8, 'big')).digest()
+        end = min(pos + 32, len(content_bytes))
+        for j in range(end - pos):
+            encrypted[pos + j] = content_bytes[pos + j] ^ block[j]
+        pos += 32
+        counter += 1
+
+    enc_b64 = base64.b64encode(bytes(encrypted)).decode()
+    salt_b64 = base64.b64encode(salt).decode()
+
+    return '''<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OKR\u5468\u62a5\u7cfb\u7edf</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);display:flex;justify-content:center;align-items:center;min-height:100vh}
+.lock-card{background:#fff;border-radius:16px;padding:48px 40px;box-shadow:0 20px 60px rgba(0,0,0,.15);width:380px;text-align:center}
+.lock-icon{font-size:56px;margin-bottom:20px;line-height:1}
+.lock-title{font-size:20px;font-weight:600;color:#1a1a1a;margin-bottom:6px}
+.lock-subtitle{font-size:14px;color:#999;margin-bottom:28px}
+.lock-input{width:100%;padding:14px 18px;border:2px solid #e8e8e8;border-radius:10px;font-size:16px;outline:none;transition:border-color .2s}
+.lock-input:focus{border-color:#667eea}
+.lock-btn{width:100%;margin-top:16px;padding:14px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:500;cursor:pointer;transition:opacity .2s}
+.lock-btn:hover{opacity:.9}
+.lock-btn:disabled{opacity:.5;cursor:not-allowed}
+.lock-error{color:#ff4d4f;font-size:14px;margin-top:14px;display:none}
+.lock-hint{margin-top:20px;font-size:12px;color:#bbb}
+</style>
+</head>
+<body>
+<div class="lock-card">
+  <div class="lock-icon">\U0001f512</div>
+  <div class="lock-title">\u5168\u56fd\u7f51\u70b9OKR\u63a8\u8fdb\u5468\u62a5</div>
+  <div class="lock-subtitle">\u8bf7\u8f93\u5165\u8bbf\u95ee\u5bc6\u7801</div>
+  <input type="password" class="lock-input" id="pwd" placeholder="\u8bbf\u95ee\u5bc6\u7801" autofocus>
+  <button class="lock-btn" id="btn" onclick="decrypt()">\u67e5\u770b\u5468\u62a5</button>
+  <div class="lock-error" id="err">\u5bc6\u7801\u9519\u8bef\uff0c\u8bf7\u91cd\u8bd5</div>
+  <div class="lock-hint">\u5185\u90e8\u8d44\u6599 \u00b7 \u4ec5\u9650\u6388\u6743\u4eba\u5458\u67e5\u770b</div>
+</div>
+<script>
+const SALT="__SALT__";
+const DATA="__DATA__";
+async function decrypt(){
+  var btn=document.getElementById('btn'),pwd=document.getElementById('pwd'),
+      err=document.getElementById('err');
+  err.style.display='none';btn.disabled=true;btn.textContent='\u89e3\u5bc6\u4e2d...';
+  try{
+    var password=pwd.value;
+    var saltBytes=Uint8Array.from(atob(SALT),function(c){return c.charCodeAt(0)});
+    var enc=Uint8Array.from(atob(DATA),function(c){return c.charCodeAt(0)});
+    var km=await crypto.subtle.importKey('raw',new TextEncoder().encode(password),'PBKDF2',false,['deriveBits']);
+    var key=new Uint8Array(await crypto.subtle.deriveBits({name:'PBKDF2',salt:saltBytes,iterations:10000,hash:'SHA-256'},km,256));
+    var n=Math.ceil(enc.length/32),ps=[];
+    for(var i=0;i<n;i++){
+      var cb=new Uint8Array(8);new DataView(cb.buffer).setBigInt64(0,BigInt(i));
+      var d=new Uint8Array(key.length+cb.length);d.set(key,0);d.set(cb,key.length);
+      ps.push(crypto.subtle.digest('SHA-256',d));
+    }
+    var hs=await Promise.all(ps);
+    var dec=new Uint8Array(enc.length);
+    for(var i=0;i<n;i++){
+      var b=new Uint8Array(hs[i]);
+      for(var j=0;j<32&&i*32+j<enc.length;j++)dec[i*32+j]=enc[i*32+j]^b[j];
+    }
+    var html=new TextDecoder().decode(dec);
+    if(html.indexOf('<!--OKR-->')!==0)throw new Error('bad password');
+    var actual=html.substring(10);
+    document.open();document.write(actual);document.close();
+  }catch(e){
+    err.style.display='block';btn.disabled=false;btn.textContent='\u67e5\u770b\u5468\u62a5';
+  }
+}
+document.getElementById('pwd').addEventListener('keypress',function(e){if(e.key==='Enter')decrypt();});
+</script>
+</body>
+</html>'''.replace('__SALT__', salt_b64).replace('__DATA__', enc_b64)
+
+
 def main():
     skip_send = '--skip-send' in sys.argv
     send_only = '--send-only' in sys.argv
@@ -2378,9 +2484,15 @@ def main():
         print('5. 生成HTML报告...')
         html = generate_html(a, today_str, week_str, comparison=comparison, ai_insight=ai_insight)
         html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'okr-report.html')
+        # 可选：密码保护（设置 REPORT_PASSWORD 环境变量后启用）
+        if REPORT_PASSWORD:
+            print('   应用密码保护（REPORT_PASSWORD已设置）...')
+            final_html = protect_html(html, REPORT_PASSWORD)
+        else:
+            final_html = html
         with open(html_path, 'w', encoding='utf-8') as f:
-            f.write(html)
-        print(f'   HTML已保存: {html_path} ({len(html)} chars)')
+            f.write(final_html)
+        print(f'   HTML已保存: {html_path} ({len(final_html)} chars)')
 
         # 5.1 保存带日期的归档副本 + 生成归档索引（用于历史回看）
         try:
@@ -2391,6 +2503,8 @@ def main():
             archive_path = os.path.join(archive_dir, f'okr-report-{today_str}.html')
             # 归档文件位于 docs/archive/ 子目录，资源相对路径需指向上一级 docs/
             archive_html = html.replace('src="assets/hmg-logo.png"', 'src="../assets/hmg-logo.png"')
+            if REPORT_PASSWORD:
+                archive_html = protect_html(archive_html, REPORT_PASSWORD)
             with open(archive_path, 'w', encoding='utf-8') as f:
                 f.write(archive_html)
             print(f'   归档HTML已保存: {archive_path}')

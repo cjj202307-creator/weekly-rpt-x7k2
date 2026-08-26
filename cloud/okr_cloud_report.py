@@ -43,6 +43,8 @@ REPORT_URL = os.environ.get('REPORT_URL', '')  # 报告URL（GitHub Pages或Clou
 GROUP_WEBHOOK = os.environ.get('DINGTALK_GROUP_WEBHOOK', '')  # 钉钉群机器人webhook（推群，可选）
 GROUP_WEBHOOK_SITE_DIGITAL = os.environ.get('DINGTALK_GROUP_WEBHOOK_SITE_DIGITAL', '')  # 第二个群：网点数字化
 GROUP_WEBHOOK_MANAGER = os.environ.get('DINGTALK_GROUP_WEBHOOK_MANAGER', '')  # 第三个群：全国网点部门经理群
+# 群推送总开关：默认关闭（暂停推送到群）。在 workflow 中设 DINGTALK_GROUP_PUSH_ENABLED=true 可重新开启。
+GROUP_PUSH_ENABLED = os.environ.get('DINGTALK_GROUP_PUSH_ENABLED', '').lower() in ('1', 'true', 'yes', 'on')
 LLM_API_KEY = os.environ.get('DASHSCOPE_API_KEY', '')  # DeepSeek API Key（AI洞察用，可选；不配置则跳过。环境变量名沿用DASHSCOPE_API_KEY，workflow无需改）
 LLM_MODEL = os.environ.get('LLM_MODEL') or 'deepseek-chat'    # 模型名，默认 deepseek-chat（空字符串也回退到默认值）
 REPORT_PASSWORD = os.environ.get('REPORT_PASSWORD', '')  # 报告访问密码（可选；设置后HTML内容加密，打开需输入密码）
@@ -190,8 +192,11 @@ def send_group_message(webhook, title, markdown_text):
 # ===== 数据处理 =====
 
 def parse_records(records):
-    """解析API返回的记录（API用中文字段名，返回name而非userId）"""
+    """解析API返回的记录（API用中文字段名，返回name而非userId）。
+    额外读取每条记录的 createdBy/lastModifiedBy/createdTime/lastModifiedTime，
+    用于统计“谁在更新进度”。返回 (krs, unionid_name_map)。"""
     krs = []
+    name_map = {}  # unionId -> name（主要来自跟进人字段，用于解析修改人姓名）
     today = date.today()
 
     for rec in records:
@@ -220,6 +225,9 @@ def parse_records(records):
             for f in followers_raw:
                 if isinstance(f, dict):
                     name = f.get('name', '')
+                    uid = f.get('unionId')
+                    if name and uid:
+                        name_map[uid] = name
                     if name:
                         follower_names.append(name)
 
@@ -262,6 +270,12 @@ def parse_records(records):
         # 网点目标
         site_goal = fields.get('网点目标', '') or ''
 
+        # 记录级审计信息（谁最后改、何时改）——用于更新活跃度统计
+        created_by = (rec.get('createdBy') or {}).get('unionId')
+        last_modified_by = (rec.get('lastModifiedBy') or {}).get('unionId')
+        created_time = rec.get('createdTime')
+        last_modified_time = rec.get('lastModifiedTime')
+
         krs.append({
             'o': o_code, 'oTitle': o_title,
             'kr': kr_short, 'krFull': kr_text,
@@ -270,9 +284,11 @@ def parse_records(records):
             'progress': progress, 'status': status,
             'deadline': deadline, 'blocker': blocker,
             'sites': sites, 'recordId': rid,
+            'created_by': created_by, 'last_modified_by': last_modified_by,
+            'created_time': created_time, 'last_modified_time': last_modified_time,
         })
 
-    return krs
+    return krs, name_map
 
 def _o_sort_key(kr):
     """按O编号数字排序的key（兼容 'O1'/'O2'/'O10' 等格式）"""
@@ -383,6 +399,8 @@ def analyze(krs, today):
 # ===== 周环比快照机制 =====
 
 SNAPSHOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data', 'snapshots')
+# 编辑日志：持久化每次运行的“谁改了哪条KR”，用于累计“谁经常更新/很少更新”
+EDIT_LOG_PATH = os.path.join(SNAPSHOT_DIR, 'edit_log.json')
 
 def _snapshot_path(today_str=None):
     """生成本次快照文件路径"""
@@ -549,7 +567,220 @@ def get_iso_week(d=None):
     iso = d.isocalendar()
     return f'W{iso[1]:02d}'
 
-def build_notify_md(today_str, report_url, week_str='', password=''):
+# ===== 更新活跃度统计（谁经常更新 / 谁很少更新）=====
+
+def _resolve_name(union_id, name_map):
+    """unionId -> 姓名；解析不到时回退为末6位，避免暴露完整ID"""
+    if not union_id:
+        return '—'
+    return name_map.get(union_id) or f'*{str(union_id)[-6:]}'
+
+
+def compute_activity(krs, name_map, today=None):
+    """基于每条KR的 lastModifiedBy / lastModifiedTime 计算更新活跃度。
+    返回: today(今日更新的人及KR)、active(本周更新的人及KR)、silent(长期未更新的KR)、summary。
+    注意：钉钉AI表格仅暴露记录级“最后修改人/最后修改时间”，非单元格级历史，
+    故“今日/本周更新”取的是当天/本周内最后一次修改该KR的人。"""
+    today = today or date.today()
+    monday = today - timedelta(days=today.weekday())  # 本周一
+    now = datetime.now()
+    today_list = {}  # unionId -> {'name','unionId','krs':[...]}  今日更新
+    active = {}   # unionId -> {'name','unionId','krs':[...]}  本周更新
+    silent = []
+    for kr in krs:
+        lmt = kr.get('last_modified_time')
+        if not lmt:
+            continue
+        try:
+            mod_dt = datetime.fromtimestamp(lmt / 1000)
+        except Exception:
+            continue
+        who = kr.get('last_modified_by')
+        who_name = _resolve_name(who, name_map)
+        days_since = (now - mod_dt).days
+        if mod_dt.date() == today:  # 今日更新
+            tkey = who or '_unknown_'
+            if tkey not in today_list:
+                today_list[tkey] = {'name': who_name, 'unionId': who, 'krs': []}
+            today_list[tkey]['krs'].append(kr['kr'])
+        if mod_dt.date() >= monday:  # 本周更新
+            key = who or '_unknown_'
+            if key not in active:
+                active[key] = {'name': who_name, 'unionId': who, 'krs': []}
+            active[key]['krs'].append(kr['kr'])
+        if days_since > 14:  # 沉默预警
+            silent.append({
+                'kr': kr['kr'], 'o': kr['o'],
+                'followers': kr.get('followers') or [],
+                'days_since': days_since,
+                'last_by': who_name,
+            })
+    today_active = sorted(today_list.values(), key=lambda x: -len(x['krs']))
+    active_list = sorted(active.values(), key=lambda x: -len(x['krs']))
+    silent.sort(key=lambda x: -x['days_since'])
+    return {
+        'today': today_active,
+        'active': active_list,
+        'silent': silent,
+        'summary': {
+            'today_people': len(today_active),
+            'today_krs': sum(len(a['krs']) for a in today_active),
+            'active_people': len(active_list),
+            'active_krs': sum(len(a['krs']) for a in active_list),
+            'silent_krs': len(silent),
+        }
+    }
+
+
+def update_edit_log(krs, name_map, today_str=None):
+    """持久化编辑日志：每次运行比对 last_modified_time，若比上次记录更新则追加一条。
+    多次运行（建议每日）后累积出每人的编辑次数，得到“谁经常更新”的排行。
+    返回累计每人的编辑次数 {unionId: {'name','edits'}}。"""
+    today_str = today_str or date.today().isoformat()
+    data = {'last_seen': {}, 'entries': []}
+    if os.path.exists(EDIT_LOG_PATH):
+        try:
+            with open(EDIT_LOG_PATH, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except Exception:
+            pass
+    last_seen = data.get('last_seen', {})
+    entries = data.get('entries', [])
+    changed = False
+    for kr in krs:
+        rid = kr['recordId']
+        lmt = kr.get('last_modified_time')
+        if not lmt:
+            continue
+        prev = last_seen.get(rid)
+        if prev is None or lmt > prev:
+            try:
+                mod_dt = datetime.fromtimestamp(lmt / 1000)
+            except Exception:
+                continue
+            who = kr.get('last_modified_by')
+            entries.append({
+                'date': mod_dt.strftime('%Y-%m-%d'),
+                'unionId': who,
+                'name': _resolve_name(who, name_map),
+                'recordId': rid,
+                'kr': kr['kr'],
+                'o': kr['o'],
+            })
+            last_seen[rid] = lmt
+            changed = True
+    if changed:
+        try:
+            with open(EDIT_LOG_PATH, 'w', encoding='utf-8') as f:
+                json.dump({'last_seen': last_seen, 'entries': entries}, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f'   警告：编辑日志保存失败: {e}', file=sys.stderr)
+    # 累计每人的编辑次数
+    agg = {}
+    for e in entries:
+        uid = e.get('unionId') or '_unknown_'
+        if uid not in agg:
+            agg[uid] = {'name': e.get('name') or _resolve_name(uid, name_map), 'edits': 0}
+        agg[uid]['edits'] += 1
+    return agg
+
+
+def load_edit_log_entries():
+    """读取持久化编辑日志中的全部更新记录（按时间升序），用于报告内“更新留档”整体档案。"""
+    if not os.path.exists(EDIT_LOG_PATH):
+        return []
+    try:
+        with open(EDIT_LOG_PATH, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return data.get('entries', []) or []
+    except Exception:
+        return []
+
+
+def _gen_activity_html(activity, edit_log_agg, edit_log_entries=None):
+    """渲染「更新活跃度」板块：今日更新 / 本周活跃跟进人 / 沉默预警 / 累计更新排行 / 更新留档"""
+    if not activity:
+        return ''
+    s = activity['summary']
+    # 今日更新（每日抓取的核心产出，置顶）
+    if activity.get('today'):
+        today_html = ''.join(
+            f'<div class="act-person"><span class="act-avatar">{_esc((a["name"] or "?")[:1])}</span>'
+            f'<div class="act-info"><div class="act-name">{_esc(a["name"])}</div>'
+            f'<div class="act-krs">{_esc("、".join(a["krs"][:6]))}{(" 等" + str(len(a["krs"])) + "项") if len(a["krs"]) > 6 else ""}</div></div>'
+            f'<div class="act-count">{len(a["krs"])}</div></div>'
+            for a in activity['today']
+        )
+        today_box = (
+            f'<div class="today-box"><div class="today-head">🟢 今日更新 '
+            f'<span class="act-badge">{s["today_people"]} 人 / {s["today_krs"]} 项KR</span></div>'
+            f'<div class="act-list">{today_html}</div></div>'
+        )
+    else:
+        today_box = (
+            '<div class="today-box today-empty">🟡 今日（截至报告生成时）暂无人更新KR进度'
+            '<span class="today-tip">—— 脚本每日运行，下次运行将捕获当天的更新</span></div>'
+        )
+    active_html = ''.join(
+        f'<div class="act-person"><span class="act-avatar">{_esc((a["name"] or "?")[:1])}</span>'
+        f'<div class="act-info"><div class="act-name">{_esc(a["name"])}</div>'
+        f'<div class="act-krs">{_esc("、".join(a["krs"][:6]))}{(" 等" + str(len(a["krs"])) + "项") if len(a["krs"]) > 6 else ""}</div></div>'
+        f'<div class="act-count">{len(a["krs"])}</div></div>'
+        for a in activity['active']
+    ) or '<div class="act-empty">本周暂无KR更新记录</div>'
+    silent_html = ''.join(
+        f'<div class="silent-item"><span class="silent-days">超 {x["days_since"]} 天</span>'
+        f'<div class="silent-info"><div class="silent-kr">{_esc(x["kr"])}</div>'
+        f'<div class="silent-owner">负责人：{_esc("、".join(x["followers"]) if x["followers"] else "未指定")} · 最后更新：{_esc(x["last_by"])}</div></div></div>'
+        for x in activity['silent'][:12]
+    ) or '<div class="act-empty">无长期未更新项，保持得不错 👍</div>'
+    ranked = sorted(edit_log_agg.values(), key=lambda v: -v['edits'])
+    if ranked:
+        max_edits = max(1, ranked[0]['edits'])
+        rank_html = ''.join(
+            f'<div class="rank-row"><span class="rank-name">{_esc(v["name"])}</span>'
+            f'<span class="rank-bar-wrap"><span class="rank-bar" style="width:{max(6, int(v["edits"] / max_edits * 100))}%"></span></span>'
+            f'<span class="rank-num">{v["edits"]} 次</span></div>'
+            for v in ranked[:10]
+        )
+    else:
+        rank_html = '<div class="act-empty">累计数据采集中（运行数周后更准确）</div>'
+    # 更新留档（整体档案，来自多次运行的编辑日志）
+    entries = edit_log_entries or []
+    if entries:
+        arch_rows = ''.join(
+            f'<div class="arch-row"><span class="arch-date">{_esc(e.get("date", ""))}</span>'
+            f'<span class="arch-name">{_esc(e.get("name") or "?")}</span>'
+            f'<span class="arch-o">{_esc(e.get("o") or "")}</span>'
+            f'<span class="arch-kr">{_esc(e.get("kr") or "")}</span></div>'
+            for e in reversed(entries[-60:])
+        )
+        arch_html = (f'<div class="act-col full"><div class="act-col-title">更新留档（整体档案）'
+                     f'<span class="act-badge">{len(entries)} 条记录</span></div>'
+                     f'<details class="arch-details"><summary>点击展开 / 收起（显示最近 60 条）</summary>'
+                     f'<div class="arch-list">{arch_rows}</div></details></div>')
+    else:
+        arch_html = ''
+
+    return f'''
+{today_box}
+<div class="activity-grid">
+  <div class="act-col">
+    <div class="act-col-title">本周活跃跟进人 <span class="act-badge">{s['active_people']} 人 / {s['active_krs']} 项KR</span></div>
+    <div class="act-list">{active_html}</div>
+  </div>
+  <div class="act-col">
+    <div class="act-col-title">更新沉默预警 <span class="act-badge warn">{s['silent_krs']} 项超14天未更新</span></div>
+    <div class="act-list">{silent_html}</div>
+  </div>
+  <div class="act-col full">
+    <div class="act-col-title">累计更新排行（谁经常更新）</div>
+    <div class="rank-list">{rank_html}</div>
+  </div>
+  {arch_html}
+</div>'''
+
+
     """极简钉钉通知：仅标题 + 一句引导 + 链接，完整内容见网页报告。"""
     title_suffix = f' {week_str}' if week_str else ''
     lines = []
@@ -1933,7 +2164,7 @@ def _gen_ai_insight_html(insight):
     return '\n'.join(parts)
 
 
-def generate_html(a, today_str, week_str='', comparison=None, ai_insight=None):
+def generate_html(a, today_str, week_str='', comparison=None, ai_insight=None, activity=None, edit_log_agg=None, edit_log_entries=None):
     """生成GM视角HTML报告（本周进展亮点置顶，服务端渲染+JS增强交互）"""
     krs = sorted(a['krs'], key=_o_sort_key)
     # 分析时间（北京时间 UTC+8），用于说明本报告对应的表格快照时刻
@@ -2027,6 +2258,7 @@ def generate_html(a, today_str, week_str='', comparison=None, ai_insight=None):
     risk_cards_html = _gen_risk_cards_html(risk_cards[:6])
     dq_html = _gen_dq_html(dq_items)
     history_html = _gen_history_section()
+    activity_html = _gen_activity_html(activity, edit_log_agg, edit_log_entries) if activity else ''
 
     c_all = len(krs)
     c_risk = len([k for k in krs if a['is_risk'](k)])
@@ -2045,6 +2277,46 @@ def generate_html(a, today_str, week_str='', comparison=None, ai_insight=None):
 <title>全国网点OKR推进周报{title_week} - {today_str}</title>
 <style>
 {CSS_TEXT}
+</style>
+<style>
+.activity-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.activity-grid .act-col.full { grid-column: 1 / -1; }
+.act-col { background: #f8f9fc; border: 1px solid #eef1f6; border-radius: 12px; padding: 18px 20px; }
+.act-col-title { font-size: 14px; font-weight: 700; color: #1a1a2e; margin-bottom: 14px; display: flex; align-items: center; gap: 10px; }
+.act-badge { font-size: 11px; font-weight: 600; color: #1a5f9e; background: #e8f2fb; padding: 3px 10px; border-radius: 12px; }
+.act-badge.warn { color: #c0392b; background: #fdecea; }
+.act-list { display: flex; flex-direction: column; gap: 10px; }
+.act-person { display: flex; align-items: center; gap: 12px; background: #fff; border: 1px solid #eef1f6; border-radius: 10px; padding: 10px 14px; }
+.act-avatar { width: 34px; height: 34px; border-radius: 50%; background: linear-gradient(135deg,#3498db,#1a5f9e); color:#fff; font-weight:700; font-size:14px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.act-info { flex: 1; min-width: 0; }
+.act-name { font-size: 14px; font-weight: 600; color: #1a1a2e; }
+.act-krs { font-size: 12px; color: #8898aa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.act-count { font-size: 18px; font-weight: 800; color: #1a5f9e; flex-shrink: 0; }
+.act-empty { font-size: 13px; color: #aab7b8; padding: 10px 2px; }
+.silent-item { display: flex; align-items: center; gap: 12px; background: #fff; border: 1px solid #fbeaec; border-left: 3px solid #e57373; border-radius: 10px; padding: 10px 14px; }
+.silent-days { font-size: 12px; font-weight: 700; color: #c0392b; background: #fdecea; padding: 4px 10px; border-radius: 8px; white-space: nowrap; flex-shrink: 0; }
+.silent-info { flex: 1; min-width: 0; }
+.silent-kr { font-size: 14px; font-weight: 600; color: #1a1a2e; }
+.silent-owner { font-size: 12px; color: #8898aa; }
+.rank-list { display: flex; flex-direction: column; gap: 10px; }
+.rank-row { display: flex; align-items: center; gap: 14px; }
+.rank-name { width: 90px; font-size: 13px; font-weight: 600; color: #1a1a2e; flex-shrink: 0; }
+.rank-bar-wrap { flex: 1; height: 16px; background: #eef1f6; border-radius: 8px; overflow: hidden; }
+.rank-bar { display: block; height: 100%; background: linear-gradient(90deg,#3498db,#1a5f9e); border-radius: 8px; }
+.rank-num { width: 56px; text-align: right; font-size: 13px; font-weight: 700; color: #1a5f9e; flex-shrink: 0; }
+.today-box { grid-column: 1 / -1; background: linear-gradient(135deg,#eafaf1,#f4fbf7); border: 1px solid #c8ecd6; border-left: 4px solid #27ae60; border-radius: 12px; padding: 16px 20px; margin-bottom: 4px; }
+.today-head { font-size: 15px; font-weight: 800; color: #1e7e4f; margin-bottom: 12px; display: flex; align-items: center; gap: 10px; }
+.today-empty { background: #fff8e6; border-color: #f3e2b3; border-left-color: #f0b429; }
+.today-empty .today-head { color: #b7791f; }
+.today-tip { font-size: 12px; font-weight: 400; color: #a08a4a; margin-left: 6px; }
+.arch-details { margin-top: 4px; }
+.arch-details > summary { cursor: pointer; font-size: 13px; color: #1a5f9e; font-weight: 600; padding: 6px 0; user-select: none; }
+.arch-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; max-height: 320px; overflow-y: auto; }
+.arch-row { display: grid; grid-template-columns: 104px 96px 56px 1fr; gap: 10px; align-items: center; background: #fff; border: 1px solid #eef1f6; border-radius: 8px; padding: 7px 12px; font-size: 13px; }
+.arch-date { color: #8898aa; font-variant-numeric: tabular-nums; }
+.arch-name { font-weight: 600; color: #1a1a2e; }
+.arch-o { color: #1a5f9e; font-weight: 700; }
+.arch-kr { color: #4a5568; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -2075,6 +2347,7 @@ def generate_html(a, today_str, week_str='', comparison=None, ai_insight=None):
   <a href="#sec-metrics" class="nav-highlight">指标</a>
   <a href="#sec-ochart" class="nav-highlight">进度可视化</a>
   <a href="#sec-risk" class="nav-highlight">重点关注</a>
+  <a href="#sec-activity" class="nav-highlight">更新活跃度</a>
   <a href="#sec-detail" class="nav-highlight">KR明细</a>
   <a href="#sec-dq" class="nav-highlight">数据质量</a>
   <a href="#sec-history" class="nav-highlight">历史</a>
@@ -2142,6 +2415,12 @@ def generate_html(a, today_str, week_str='', comparison=None, ai_insight=None):
 <div class="section" id="sec-risk">
   <h2>重点关注事项</h2>
   <div class="risk-grid" id="riskGrid">{risk_cards_html}</div>
+</div>
+
+<div class="section" id="sec-activity">
+  <h2>更新活跃度 <small style="font-weight:400;color:#8898aa;font-size:12px;margin-left:8px">谁在更新进度 · 谁很少更新</small></h2>
+  <p style="font-size:13px;color:#8898aa;margin:-6px 0 14px">脚本每日运行，依据钉钉AI表格每条记录的最后修改人与修改时间统计；「今日更新」反映当天的进度更新，「更新留档」为所有运行累积的整体档案（运行越频繁越准）。</p>
+  {activity_html}
 </div>
 
 <div class="section" id="sec-detail">
@@ -2457,9 +2736,15 @@ def main():
 
         # 4. 解析和分析
         print('4. 解析和分析数据...')
-        krs = parse_records(records)
+        krs, name_map = parse_records(records)
         a = analyze(krs, today)
+        activity = compute_activity(krs, name_map, today)
         print(f'   有效KR: {len(krs)}, 平均进度: {a["overall_avg"]}%, 本周有进展: {a["updated_count"]}, 停滞: {a["stale_count"]}, 超目标日期: {a["overdue_count"]}')
+        print(f'   更新活跃度：本周{activity["summary"]["active_people"]}人更新了{activity["summary"]["active_krs"]}项KR，{activity["summary"]["silent_krs"]}项超14天未更新')
+        edit_log_agg = update_edit_log(krs, name_map, today_str)
+        edit_log_entries = load_edit_log_entries()
+        print(f'   编辑日志已更新，累计{len(edit_log_agg)}人参与更新，共{len(edit_log_entries)}条更新记录')
+        print(f'   今日更新：{activity["summary"]["today_people"]}人更新了{activity["summary"]["today_krs"]}项KR')
 
         # 4.5 读取上周快照并计算环比
         print('4.5. 计算周环比...')
@@ -2485,7 +2770,8 @@ def main():
             print('5.0 跳过AI洞察（未配置 DASHSCOPE_API_KEY）')
 
         print('5. 生成HTML报告...')
-        html = generate_html(a, today_str, week_str, comparison=comparison, ai_insight=ai_insight)
+        html = generate_html(a, today_str, week_str, comparison=comparison, ai_insight=ai_insight,
+                             activity=activity, edit_log_agg=edit_log_agg, edit_log_entries=edit_log_entries)
         html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'okr-report.html')
         # 可选：密码保护（设置 REPORT_PASSWORD 环境变量后启用）
         if REPORT_PASSWORD:
@@ -2561,24 +2847,27 @@ def main():
         else:
             print(f'   个人发送失败: {json.dumps(result, ensure_ascii=False)}')
 
-        # 8.2 群推送（配置了 webhook 的群都推送）
-        print('   8.2 推送到群...')
-        group_webhooks = [
-            ('DINGTALK_GROUP_WEBHOOK', GROUP_WEBHOOK),
-            ('DINGTALK_GROUP_WEBHOOK_SITE_DIGITAL', GROUP_WEBHOOK_SITE_DIGITAL),
-            ('DINGTALK_GROUP_WEBHOOK_MANAGER', GROUP_WEBHOOK_MANAGER),
-        ]
-        for gname, gwh in group_webhooks:
-            if not gwh:
-                print(f'   群推送跳过（未配置 {gname}）')
-                continue
-            gresult = send_group_message(gwh, msg_title, md)
-            if gresult is None:
-                print(f'   群推送请求异常（{gname}）')
-            elif gresult.get('errcode') == 0:
-                print(f'   群发送成功！（{gname}）标题：{msg_title}')
-            else:
-                print(f'   群发送失败（{gname}）: {json.dumps(gresult, ensure_ascii=False)}')
+        # 8.2 群推送（配置了 webhook 的群都推送）—— 默认暂停，需 DINGTALK_GROUP_PUSH_ENABLED=true 才开启
+        if not GROUP_PUSH_ENABLED:
+            print('   8.2 群推送已暂停（DINGTALK_GROUP_PUSH_ENABLED 未开启；个人单聊推送不受影响）')
+        else:
+            print('   8.2 推送到群...')
+            group_webhooks = [
+                ('DINGTALK_GROUP_WEBHOOK', GROUP_WEBHOOK),
+                ('DINGTALK_GROUP_WEBHOOK_SITE_DIGITAL', GROUP_WEBHOOK_SITE_DIGITAL),
+                ('DINGTALK_GROUP_WEBHOOK_MANAGER', GROUP_WEBHOOK_MANAGER),
+            ]
+            for gname, gwh in group_webhooks:
+                if not gwh:
+                    print(f'   群推送跳过（未配置 {gname}）')
+                    continue
+                gresult = send_group_message(gwh, msg_title, md)
+                if gresult is None:
+                    print(f'   群推送请求异常（{gname}）')
+                elif gresult.get('errcode') == 0:
+                    print(f'   群发送成功！（{gname}）标题：{msg_title}')
+                else:
+                    print(f'   群发送失败（{gname}）: {json.dumps(gresult, ensure_ascii=False)}')
 
     print(f'[{datetime.now().isoformat()}] 完成')
 

@@ -2,8 +2,8 @@ name: OKR Weekly Report
 
 on:
   schedule:
-    # 每日 10:30 UTC = 北京时间 18:30（抓取当天进度更新）
-    - cron: '30 10 * * *'
+    # 每小时第5分钟 UTC = 北京时间每小时 05 分（静默抓取，仅更新网站+留档，不推送）
+    - cron: '5 * * * *'
   workflow_dispatch:
 
 # deploy-pages 需要 pages:write + id-token:write；contents:write 用于 git push 历史
@@ -73,7 +73,9 @@ jobs:
           DINGTALK_USER_ID: '17397552280041830'
           DINGTALK_GROUP_WEBHOOK: ${{ secrets.DINGTALK_GROUP_WEBHOOK }}
           DINGTALK_GROUP_WEBHOOK_SITE_DIGITAL: ${{ secrets.DINGTALK_GROUP_WEBHOOK_SITE_DIGITAL }}
+          DINGTALK_GROUP_WEBHOOK_MANAGER: ${{ secrets.DINGTALK_GROUP_WEBHOOK_MANAGER }}
           DINGTALK_GROUP_PUSH_ENABLED: ${{ vars.DINGTALK_GROUP_PUSH_ENABLED }}
+          DINGTALK_PUSH_ENABLED: 'false'
           REPORT_URL: ${{ vars.REPORT_URL }}
           REPORT_PASSWORD: ${{ secrets.REPORT_PASSWORD }}
         run: python cloud/okr_cloud_report.py --send-only

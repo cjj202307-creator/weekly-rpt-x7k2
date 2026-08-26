@@ -45,6 +45,8 @@ GROUP_WEBHOOK_SITE_DIGITAL = os.environ.get('DINGTALK_GROUP_WEBHOOK_SITE_DIGITAL
 GROUP_WEBHOOK_MANAGER = os.environ.get('DINGTALK_GROUP_WEBHOOK_MANAGER', '')  # 第三个群：全国网点部门经理群
 # 群推送总开关：默认关闭（暂停推送到群）。在 workflow 中设 DINGTALK_GROUP_PUSH_ENABLED=true 可重新开启。
 GROUP_PUSH_ENABLED = os.environ.get('DINGTALK_GROUP_PUSH_ENABLED', '').lower() in ('1', 'true', 'yes', 'on')
+# 推送总开关：默认关闭（静默模式——个人单聊和群都不推）。每小时抓取留档时用。设 DINGTALK_PUSH_ENABLED=true 才重新开启推送。
+PUSH_ENABLED = os.environ.get('DINGTALK_PUSH_ENABLED', '').lower() in ('1', 'true', 'yes', 'on')
 LLM_API_KEY = os.environ.get('DASHSCOPE_API_KEY', '')  # DeepSeek API Key（AI洞察用，可选；不配置则跳过。环境变量名沿用DASHSCOPE_API_KEY，workflow无需改）
 LLM_MODEL = os.environ.get('LLM_MODEL') or 'deepseek-chat'    # 模型名，默认 deepseek-chat（空字符串也回退到默认值）
 REPORT_PASSWORD = os.environ.get('REPORT_PASSWORD', '')  # 报告访问密码（可选；设置后HTML内容加密，打开需输入密码）
@@ -2776,6 +2778,11 @@ def main():
 
     # ===== 阶段B：发送钉钉通知（--skip-send 时跳过） =====
     if not skip_send:
+        # 推送总开关：默认关闭（静默模式）。每小时抓取时只更新网站和留档，不发任何钉钉消息。
+        if not PUSH_ENABLED:
+            print('   推送已暂停（DINGTALK_PUSH_ENABLED 未开启；静默模式——个人和群均不推送）')
+            return
+
         # URL检查：无URL且未显式允许，则拒绝发送（避免无链接推送）
         if not REPORT_URL and not allow_no_url:
             print(f'   错误：REPORT_URL 未设置，拒绝发送（避免推送无链接消息）')

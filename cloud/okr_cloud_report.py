@@ -2279,44 +2279,7 @@ def generate_html(a, today_str, week_str='', comparison=None, ai_insight=None, a
 {CSS_TEXT}
 </style>
 <style>
-.activity-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
-.activity-grid .act-col.full { grid-column: 1 / -1; }
-.act-col { background: #f8f9fc; border: 1px solid #eef1f6; border-radius: 12px; padding: 18px 20px; }
-.act-col-title { font-size: 14px; font-weight: 700; color: #1a1a2e; margin-bottom: 14px; display: flex; align-items: center; gap: 10px; }
-.act-badge { font-size: 11px; font-weight: 600; color: #1a5f9e; background: #e8f2fb; padding: 3px 10px; border-radius: 12px; }
-.act-badge.warn { color: #c0392b; background: #fdecea; }
-.act-list { display: flex; flex-direction: column; gap: 10px; }
-.act-person { display: flex; align-items: center; gap: 12px; background: #fff; border: 1px solid #eef1f6; border-radius: 10px; padding: 10px 14px; }
-.act-avatar { width: 34px; height: 34px; border-radius: 50%; background: linear-gradient(135deg,#3498db,#1a5f9e); color:#fff; font-weight:700; font-size:14px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
-.act-info { flex: 1; min-width: 0; }
-.act-name { font-size: 14px; font-weight: 600; color: #1a1a2e; }
-.act-krs { font-size: 12px; color: #8898aa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.act-count { font-size: 18px; font-weight: 800; color: #1a5f9e; flex-shrink: 0; }
-.act-empty { font-size: 13px; color: #aab7b8; padding: 10px 2px; }
-.silent-item { display: flex; align-items: center; gap: 12px; background: #fff; border: 1px solid #fbeaec; border-left: 3px solid #e57373; border-radius: 10px; padding: 10px 14px; }
-.silent-days { font-size: 12px; font-weight: 700; color: #c0392b; background: #fdecea; padding: 4px 10px; border-radius: 8px; white-space: nowrap; flex-shrink: 0; }
-.silent-info { flex: 1; min-width: 0; }
-.silent-kr { font-size: 14px; font-weight: 600; color: #1a1a2e; }
-.silent-owner { font-size: 12px; color: #8898aa; }
-.rank-list { display: flex; flex-direction: column; gap: 10px; }
-.rank-row { display: flex; align-items: center; gap: 14px; }
-.rank-name { width: 90px; font-size: 13px; font-weight: 600; color: #1a1a2e; flex-shrink: 0; }
-.rank-bar-wrap { flex: 1; height: 16px; background: #eef1f6; border-radius: 8px; overflow: hidden; }
-.rank-bar { display: block; height: 100%; background: linear-gradient(90deg,#3498db,#1a5f9e); border-radius: 8px; }
-.rank-num { width: 56px; text-align: right; font-size: 13px; font-weight: 700; color: #1a5f9e; flex-shrink: 0; }
-.today-box { grid-column: 1 / -1; background: linear-gradient(135deg,#eafaf1,#f4fbf7); border: 1px solid #c8ecd6; border-left: 4px solid #27ae60; border-radius: 12px; padding: 16px 20px; margin-bottom: 4px; }
-.today-head { font-size: 15px; font-weight: 800; color: #1e7e4f; margin-bottom: 12px; display: flex; align-items: center; gap: 10px; }
-.today-empty { background: #fff8e6; border-color: #f3e2b3; border-left-color: #f0b429; }
-.today-empty .today-head { color: #b7791f; }
-.today-tip { font-size: 12px; font-weight: 400; color: #a08a4a; margin-left: 6px; }
-.arch-details { margin-top: 4px; }
-.arch-details > summary { cursor: pointer; font-size: 13px; color: #1a5f9e; font-weight: 600; padding: 6px 0; user-select: none; }
-.arch-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; max-height: 320px; overflow-y: auto; }
-.arch-row { display: grid; grid-template-columns: 104px 96px 56px 1fr; gap: 10px; align-items: center; background: #fff; border: 1px solid #eef1f6; border-radius: 8px; padding: 7px 12px; font-size: 13px; }
-.arch-date { color: #8898aa; font-variant-numeric: tabular-nums; }
-.arch-name { font-weight: 600; color: #1a1a2e; }
-.arch-o { color: #1a5f9e; font-weight: 700; }
-.arch-kr { color: #4a5568; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+{ACTIVITY_CSS}
 </style>
 </head>
 <body>
@@ -2870,6 +2833,64 @@ def main():
                     print(f'   群发送失败（{gname}）: {json.dumps(gresult, ensure_ascii=False)}')
 
     print(f'[{datetime.now().isoformat()}] 完成')
+
+
+
+# ===== 活动板块样式（独立普通字符串，避免 f-string 误解析花括号） =====
+ACTIVITY_CSS = """.activity-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.activity-grid .act-col.full { grid-column: 1 / -1; }
+.act-col { background: #f8f9fc; border: 1px solid #eef1f6; border-radius: 12px; padding: 18px 20px; }
+.act-col-title { font-size: 14px; font-weight: 700; color: #1a1a2e; margin-bottom: 14px; display: flex; align-items: center; gap: 10px; }
+.act-badge { font-size: 11px; font-weight: 600; color: #1a5f9e; background: #e8f2fb; padding: 3px 10px; border-radius: 12px; }
+.act-badge.warn { color: #c0392b; background: #fdecea; }
+.act-list { display: flex; flex-direction: column; gap: 10px; }
+.act-person { display: flex; align-items: center; gap: 12px; background: #fff; border: 1px solid #eef1f6; border-radius: 10px; padding: 10px 14px; }
+.act-avatar { width: 34px; height: 34px; border-radius: 50%; background: linear-gradient(135deg,#3498db,#1a5f9e); color:#fff; font-weight:700; font-size:14px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.act-info { flex: 1; min-width: 0; }
+.act-name { font-size: 14px; font-weight: 600; color: #1a1a2e; }
+.act-krs { font-size: 12px; color: #8898aa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.act-count { font-size: 18px; font-weight: 800; color: #1a5f9e; flex-shrink: 0; }
+.act-empty { font-size: 13px; color: #aab7b8; padding: 10px 2px; }
+.silent-item { display: flex; align-items: center; gap: 12px; background: #fff; border: 1px solid #fbeaec; border-left: 3px solid #e57373; border-radius: 10px; padding: 10px 14px; }
+.silent-days { font-size: 12px; font-weight: 700; color: #c0392b; background: #fdecea; padding: 4px 10px; border-radius: 8px; white-space: nowrap; flex-shrink: 0; }
+.silent-info { flex: 1; min-width: 0; }
+.silent-kr { font-size: 14px; font-weight: 600; color: #1a1a2e; }
+.silent-owner { font-size: 12px; color: #8898aa; }
+.rank-list { display: flex; flex-direction: column; gap: 10px; }
+.rank-row { display: flex; align-items: center; gap: 14px; }
+.rank-name { width: 90px; font-size: 13px; font-weight: 600; color: #1a1a2e; flex-shrink: 0; }
+.rank-bar-wrap { flex: 1; height: 16px; background: #eef1f6; border-radius: 8px; overflow: hidden; }
+.rank-bar { display: block; height: 100%; background: linear-gradient(90deg,#3498db,#1a5f9e); border-radius: 8px; }
+.rank-num { width: 56px; text-align: right; font-size: 13px; font-weight: 700; color: #1a5f9e; flex-shrink: 0; }
+.today-box { grid-column: 1 / -1; background: linear-gradient(135deg,#eafaf1,#f4fbf7); border: 1px solid #c8ecd6; border-left: 4px solid #27ae60; border-radius: 12px; padding: 16px 20px; margin-bottom: 4px; }
+.today-head { font-size: 15px; font-weight: 800; color: #1e7e4f; margin-bottom: 12px; display: flex; align-items: center; gap: 10px; }
+.today-empty { background: #fff8e6; border-color: #f3e2b3; border-left-color: #f0b429; }
+.today-empty .today-head { color: #b7791f; }
+.today-tip { font-size: 12px; font-weight: 400; color: #a08a4a; margin-left: 6px; }
+.arch-details { margin-top: 4px; }
+.arch-details > summary { cursor: pointer; font-size: 13px; color: #1a5f9e; font-weight: 600; padding: 6px 0; user-select: none; }
+.arch-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; max-height: 320px; overflow-y: auto; }
+.arch-row { display: grid; grid-template-columns: 104px 96px 56px 1fr; gap: 10px; align-items: center; background: #fff; border: 1px solid #eef1f6; border-radius: 8px; padding: 7px 12px; font-size: 13px; }
+.arch-date { color: #8898aa; font-variant-numeric: tabular-nums; }
+.arch-name { font-weight: 600; color: #1a1a2e; }
+.arch-o { color: #1a5f9e; font-weight: 700; }
+.arch-kr { color: #4a5568; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }"""
+
+
+def build_notify_md(today_str, report_url, week_str='', password=''):
+    """极简钉钉通知（个人+群共用）：标题 + 一句引导 + 查看完整报告链接（+密码提示）。
+    对应 main 中 `md = build_notify_md(today_str, REPORT_URL, week_str, password=REPORT_PASSWORD)`。"""
+    title_suffix = f' {week_str}' if week_str else ''
+    lines = [
+        f'## 全国网点OKR推进周报{title_suffix}',
+        f'{today_str}',
+        '',
+        '本周 OKR 推进情况已更新，点击查看完整网页报告：',
+        f'📊 [查看完整报告]({report_url})',
+    ]
+    if password:
+        lines += ['', f'报告查看密码：{password}']
+    return '\n'.join(lines)
 
 if __name__ == '__main__':
     main()

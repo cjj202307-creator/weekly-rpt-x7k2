@@ -820,6 +820,11 @@ def _gen_activity_html(activity, edit_log_agg, edit_log_entries=None, name_map=N
         if not _ok_name(nm):
             continue
         if uid not in roster:
+            # 按姓名合并：手动补录/反查失败的 unionId 若姓名已在花名册中，则归并到该人名下
+            matched = next((r_uid for r_uid, r_v in roster.items() if r_v['name'] == nm), None)
+            if matched is not None:
+                roster[matched]['edits'] += v.get('edits', 0)
+                continue
             roster[uid] = {'name': nm, 'edits': 0}
         roster[uid]['edits'] = v.get('edits', 0)
     ranked = sorted(roster.values(), key=lambda x: (-x['edits'], x['name']))
@@ -850,9 +855,11 @@ def _gen_activity_html(activity, edit_log_agg, edit_log_entries=None, name_map=N
 {today_box}
 <div class="activity-grid">
   <div class="act-col full">
-    <div class="act-col-title">更新活跃度排行 {range_badge}</div>
-    <div class="rank-note">按累计更新次数排序，包含未更新人员（灰条为 0 次）</div>
-    <div class="rank-list">{rank_html}</div>
+    <details class="rank-details">
+      <summary class="act-col-title">更新活跃度排行 {range_badge}</summary>
+      <div class="rank-note">按累计更新次数排序，包含未更新人员（灰条为 0 次）</div>
+      <div class="rank-list">{rank_html}</div>
+    </details>
   </div>
 </div>'''
 
@@ -2956,7 +2963,11 @@ ACTIVITY_CSS = """.activity-grid { display: grid; grid-template-columns: 1fr 1fr
 .wk-more { font-size: 12px; color: #8898aa; padding-left: 2px; }
 .rank-note { font-size: 12px; color: #8898aa; margin: -8px 0 12px; }
 .rank-bar-zero { background: #dde3ea; }
-.rank-num.zero { color: #aab7b8; }"""
+.rank-num.zero { color: #aab7b8; }
+.rank-details summary { list-style: none; cursor: pointer; user-select: none; }
+.rank-details summary::-webkit-details-marker { display: none; }
+.rank-details summary::after { content: '展开 ▾'; font-size: 11px; font-weight: 600; color: #1a5f9e; background: #e8f2fb; padding: 2px 10px; border-radius: 10px; margin-left: auto; }
+.rank-details[open] summary::after { content: '收起 ▴'; }"""
 
 
 def build_notify_md(today_str, report_url, week_str='', password=''):

@@ -1,34 +1,42 @@
 {
-  "last_seen": {
-    "3LKpTzKFpX": 1784810216000,
-    "4M5ay4AH6t": 1786617141000,
-    "9F6YBb7Uhc": 1784812414000,
-    "AJ6qyRqFiU": 1784800355000,
-    "Ft23VyEwG7": 1786339571000,
-    "G9rDLO7dh7": 1787206474000,
-    "GokzKTd2RN": 1784811993000,
-    "L9rbCrMLDR": 1786669690000,
-    "O43l2cDgwN": 1787221163000,
-    "W5O3oHM2Wg": 1784809407000,
-    "YrG9KuJPJE": 1783934071000,
-    "a9vDqVs3hV": 1786617214000,
-    "c7DV9KzqG2": 1786618259000,
-    "dxRhOqFf0c": 1781244053000,
-    "fWmksU3dRi": 1786617438000,
-    "fZi3GnHztG": 1784810968000,
-    "jHZW9OdTw5": 1787217201000,
-    "qPCawwav6O": 1787733854000,
-    "uqEwQjZjmM": 1784856194000,
-    "ykxn6qP2KF": 1787813726000
+ "last_seen": {
+  "3LKpTzKFpX": 1784810216000,
+  "4M5ay4AH6t": 1786617141000,
+  "9F6YBb7Uhc": 1784812414000,
+  "AJ6qyRqFiU": 1784800355000,
+  "Ft23VyEwG7": 1786339571000,
+  "G9rDLO7dh7": 1787206474000,
+  "GokzKTd2RN": 1784811993000,
+  "L9rbCrMLDR": 1786669690000,
+  "O43l2cDgwN": 1787221163000,
+  "W5O3oHM2Wg": 1784809407000,
+  "YrG9KuJPJE": 1783934071000,
+  "a9vDqVs3hV": 1786617214000,
+  "c7DV9KzqG2": 1786618259000,
+  "dxRhOqFf0c": 1781244053000,
+  "fWmksU3dRi": 1786617438000,
+  "fZi3GnHztG": 1784810968000,
+  "jHZW9OdTw5": 1787217201000,
+  "qPCawwav6O": 1787733854000,
+  "uqEwQjZjmM": 1784856194000,
+  "ykxn6qP2KF": 1787813726000
+ },
+ "entries": [
+  {
+   "date": "2026-08-27",
+   "unionId": "a5rViPL6MiiGEpLtfKVJdb4wiEiE",
+   "name": "蔡嘉骏",
+   "recordId": "ykxn6qP2KF",
+   "kr": "数智化应用复制推广",
+   "o": "O3"
   },
-  "entries": [
-    {
-      "date": "2026-08-27",
-      "unionId": "a5rViPL6MiiGEpLtfKVJdb4wiEiE",
-      "name": "蔡嘉骏",
-      "recordId": "ykxn6qP2KF",
-      "kr": "数智化应用复制推广",
-      "o": "O3"
-    }
-  ]
+  {
+   "date": "2026-08-27",
+   "unionId": "__manual_jq__",
+   "name": "蒋青",
+   "recordId": "__manual_jq__",
+   "kr": "（手动补录更新计数）",
+   "o": "-"
+  }
+ ]
 }

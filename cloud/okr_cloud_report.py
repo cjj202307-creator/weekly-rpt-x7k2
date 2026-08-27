@@ -233,6 +233,21 @@ def parse_records(records):
                     if name:
                         follower_names.append(name)
 
+        # 负责人（也可能是表格更新人，补充进 name_map 扩大姓名反查范围）
+        owner_raw = fields.get('负责人', [])
+        if isinstance(owner_raw, list):
+            for f in owner_raw:
+                if isinstance(f, dict):
+                    name = f.get('name', '')
+                    uid = f.get('unionId')
+                    if name and uid:
+                        name_map[uid] = name
+        elif isinstance(owner_raw, dict):
+            name = owner_raw.get('name', '')
+            uid = owner_raw.get('unionId')
+            if name and uid:
+                name_map[uid] = name
+
         # 进度
         progress_raw = fields.get('推进进度', '')
         progress = None
@@ -403,6 +418,52 @@ def analyze(krs, today):
 SNAPSHOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data', 'snapshots')
 # 编辑日志：持久化每次运行的“谁改了哪条KR”，用于累计“谁经常更新/很少更新”
 EDIT_LOG_PATH = os.path.join(SNAPSHOT_DIR, 'edit_log.json')
+# 姓名缓存：反查成功的 unionId->name 本地缓存，避免每次运行都调钉钉API
+NAME_CACHE_PATH = os.path.join(SNAPSHOT_DIR, 'name_cache.json')
+
+def _load_name_cache():
+    try:
+        with open(NAME_CACHE_PATH, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_name_cache(cache):
+    try:
+        os.makedirs(SNAPSHOT_DIR, exist_ok=True)
+        with open(NAME_CACHE_PATH, 'w', encoding='utf-8') as f:
+            json.dump(cache, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f'   警告：姓名缓存保存失败: {e}', file=sys.stderr)
+
+def enrich_name_map(token, name_map, ids):
+    """通过钉钉API反查未知unionId的姓名（getbyunionid -> user/get），并缓存到本地。
+    解决表格更新人不在“跟进人/负责人”字段时显示为 *xxxxxx 的问题。失败时静默跳过（保留回退显示）。"""
+    cache = _load_name_cache()
+    merged = dict(cache)
+    merged.update(name_map)
+    changed = False
+    for uid in ids:
+        if not uid or uid in merged:
+            continue
+        try:
+            url = f'https://oapi.dingtalk.com/topapi/v2/user/getbyunionid?access_token={token}'
+            r = api_request(url, 'POST', body={'unionid': uid})
+            userid = (r.get('result') or {}).get('userid')
+            if not userid or r.get('errcode') != 0:
+                continue
+            url2 = f'https://oapi.dingtalk.com/topapi/v2/user/get?access_token={token}'
+            r2 = api_request(url2, 'POST', body={'userid': userid})
+            name = (r2.get('result') or {}).get('name', '')
+            if name:
+                merged[uid] = name
+                cache[uid] = name
+                changed = True
+        except Exception as e:
+            print(f'   警告：反查unionId {uid} 姓名失败: {e}', file=sys.stderr)
+    if changed:
+        _save_name_cache(cache)
+    return merged
 
 def _snapshot_path(today_str=None):
     """生成本次快照文件路径"""
@@ -609,7 +670,12 @@ def compute_activity(krs, name_map, today=None):
             key = who or '_unknown_'
             if key not in active:
                 active[key] = {'name': who_name, 'unionId': who, 'krs': []}
-            active[key]['krs'].append(kr['kr'])
+            active[key]['krs'].append({
+                'kr': kr['kr'],
+                'o': kr['o'],
+                'desc': (kr.get('krDesc') or '').strip(),
+                'date': mod_dt.strftime('%m-%d'),
+            })
         if days_since > 14:  # 沉默预警
             silent.append({
                 'kr': kr['kr'], 'o': kr['o'],
@@ -699,22 +765,42 @@ def load_edit_log_entries():
         return []
 
 
-def _gen_activity_html(activity, edit_log_agg, edit_log_entries=None):
-    """渲染「更新活跃度」板块：本周更新 + 整体更新活跃度排行。
+def _gen_activity_html(activity, edit_log_agg, edit_log_entries=None, name_map=None):
+    """渲染「更新活跃度」板块：本周更新（含进展详情）+ 整体更新活跃度排行（含未更新人员）。
     edit_log 仍在后台每次运行累积留档（edit_log.json），页面只展示汇总排行，不展示明细。"""
     if not activity:
         return ''
     s = activity['summary']
-    # 本周更新（本周一至报告生成时，置顶）
+    # 本周更新（本周一至报告生成时，置顶；每人展示更新的KR及进展详情摘要）
     week_list = activity.get('active') or []
     if week_list:
-        week_html = ''.join(
-            f'<div class="act-person"><span class="act-avatar">{_esc((a["name"] or "?")[:1])}</span>'
-            f'<div class="act-info"><div class="act-name">{_esc(a["name"])}</div>'
-            f'<div class="act-krs">{_esc("、".join(a["krs"][:6]))}{(" 等" + str(len(a["krs"])) + "项") if len(a["krs"]) > 6 else ""}</div></div>'
-            f'<div class="act-count">{len(a["krs"])}</div></div>'
-            for a in week_list
-        )
+        person_rows = []
+        for a in week_list:
+            items = []
+            for it in a['krs'][:6]:
+                title = it['kr'] if isinstance(it, dict) else it
+                desc = (it.get('desc') or '').strip() if isinstance(it, dict) else ''
+                date = (it.get('date') or '') if isinstance(it, dict) else ''
+                if desc:
+                    desc_short = desc if len(desc) <= 60 else desc[:60] + '…'
+                    item_html = (f'<div class="wk-item"><span class="wk-date">{_esc(date)}</span>'
+                                 f'<div class="wk-body"><div class="wk-title">{_esc(title)}</div>'
+                                 f'<div class="wk-desc">{_esc(desc_short)}</div></div></div>')
+                else:
+                    item_html = (f'<div class="wk-item"><span class="wk-date">{_esc(date)}</span>'
+                                 f'<div class="wk-body"><div class="wk-title">{_esc(title)}</div>'
+                                 f'<div class="wk-desc muted">（本次更新无进展详情，可能仅调整进度/状态）</div></div></div>')
+                items.append(item_html)
+            more = f'<div class="wk-more">… 还有 {len(a["krs"]) - 6} 项KR</div>' if len(a['krs']) > 6 else ''
+            person_rows.append(
+                f'<div class="act-person act-person-col">'
+                f'<div class="act-person-top"><span class="act-avatar">{_esc((a["name"] or "?")[:1])}</span>'
+                f'<div class="act-info"><div class="act-name">{_esc(a["name"])}</div>'
+                f'<div class="act-krs">本周更新 {len(a["krs"])} 项KR</div></div>'
+                f'<div class="act-count">{len(a["krs"])}</div></div>'
+                f'<div class="wk-list">{"".join(items)}{more}</div></div>'
+            )
+        week_html = ''.join(person_rows)
         today_box = (
             f'<div class="today-box"><div class="today-head">🟢 本周更新 '
             f'<span class="act-badge">{s["active_people"]} 人 / {s["active_krs"]} 项KR</span></div>'
@@ -725,24 +811,47 @@ def _gen_activity_html(activity, edit_log_agg, edit_log_entries=None):
             '<div class="today-box today-empty">🟡 本周（周一至报告生成时）暂无人更新KR进度'
             '<span class="today-tip">—— 脚本每小时运行，下次运行将捕获最新更新</span></div>'
         )
-    # 更新活跃度排行（整体：来自历次运行累积的编辑日志汇总）
-    ranked = sorted(edit_log_agg.values(), key=lambda v: -v['edits'])
+    # 更新活跃度排行：全部跟进人/负责人（含未更新），按累计编辑次数排序
+    roster = {}
+    for uid, nm in (name_map or {}).items():
+        roster[uid] = {'name': nm, 'edits': 0}
+    for uid, v in (edit_log_agg or {}).items():
+        if uid not in roster:
+            roster[uid] = {'name': v.get('name') or _resolve_name(uid, name_map), 'edits': 0}
+        roster[uid]['edits'] = v.get('edits', 0)
+    ranked = sorted(roster.values(), key=lambda x: (-x['edits'], x['name']))
+    # 统计时间范围（编辑日志首条 ~ 最新一条）
+    dates = [e.get('date', '') for e in (edit_log_entries or []) if e.get('date')]
+    if dates:
+        rng = f'{min(dates)} ~ {max(dates)}'
+        range_badge = f'<span class="act-badge">统计范围：{_esc(rng)}</span>'
+    else:
+        range_badge = '<span class="act-badge">统计范围：数据采集中</span>'
     if ranked:
         max_edits = max(1, ranked[0]['edits'])
-        rank_html = ''.join(
-            f'<div class="rank-row"><span class="rank-name">{_esc(v["name"])}</span>'
-            f'<span class="rank-bar-wrap"><span class="rank-bar" style="width:{max(6, int(v["edits"] / max_edits * 100))}%"></span></span>'
-            f'<span class="rank-num">{v["edits"]} 次</span></div>'
-            for v in ranked[:10]
-        )
+        visible = ranked[:30]
+        rank_rows = []
+        for v in visible:
+            if v['edits'] > 0:
+                pct = max(6, int(v['edits'] / max_edits * 100))
+                bar = (f'<span class="rank-bar-wrap"><span class="rank-bar" style="width:{pct}%"></span></span>'
+                       f'<span class="rank-num">{v["edits"]} 次</span>')
+            else:
+                bar = ('<span class="rank-bar-wrap"><span class="rank-bar rank-bar-zero"></span></span>'
+                       f'<span class="rank-num zero">{v["edits"]} 次</span>')
+            rank_rows.append(f'<div class="rank-row"><span class="rank-name">{_esc(v["name"])}</span>{bar}</div>')
+        rank_html = ''.join(rank_rows)
+        if len(ranked) > 30:
+            rank_html += f'<div class="act-empty">… 另有 {len(ranked) - 30} 人（0次更新）未列出</div>'
     else:
-        rank_html = '<div class="act-empty">累计数据采集中（运行数天后更准确）</div>'
+        rank_html = '<div class="act-empty">暂无跟进人数据（表格中未填写跟进人）</div>'
 
     return f'''
 {today_box}
 <div class="activity-grid">
   <div class="act-col full">
-    <div class="act-col-title">更新活跃度排行 <span class="act-badge">按累计更新次数</span></div>
+    <div class="act-col-title">更新活跃度排行 {range_badge}</div>
+    <div class="rank-note">按累计更新次数排序，包含未更新人员（灰条为 0 次）</div>
     <div class="rank-list">{rank_html}</div>
   </div>
 </div>'''
@@ -2114,7 +2223,7 @@ def _gen_ai_insight_html(insight):
     return '\n'.join(parts)
 
 
-def generate_html(a, today_str, week_str='', comparison=None, ai_insight=None, activity=None, edit_log_agg=None, edit_log_entries=None):
+def generate_html(a, today_str, week_str='', comparison=None, ai_insight=None, activity=None, edit_log_agg=None, edit_log_entries=None, name_map=None):
     """生成GM视角HTML报告（本周进展亮点置顶，服务端渲染+JS增强交互）"""
     krs = sorted(a['krs'], key=_o_sort_key)
     # 分析时间（北京时间 UTC+8），用于说明本报告对应的表格快照时刻
@@ -2208,7 +2317,7 @@ def generate_html(a, today_str, week_str='', comparison=None, ai_insight=None, a
     risk_cards_html = _gen_risk_cards_html(risk_cards[:6])
     dq_html = _gen_dq_html(dq_items)
     history_html = _gen_history_section()
-    activity_html = _gen_activity_html(activity, edit_log_agg, edit_log_entries) if activity else ''
+    activity_html = _gen_activity_html(activity, edit_log_agg, edit_log_entries, name_map) if activity else ''
 
     c_all = len(krs)
     c_risk = len([k for k in krs if a['is_risk'](k)])
@@ -2332,7 +2441,7 @@ def generate_html(a, today_str, week_str='', comparison=None, ai_insight=None, a
 
 <div class="section" id="sec-activity">
   <h2>更新活跃度</h2>
-  <p style="font-size:13px;color:#8898aa;margin:-6px 0 14px">脚本每小时运行，依据钉钉AI表格每条记录的最后修改人与修改时间统计；「本周更新」反映本周一至最近一次运行的进度更新，「更新活跃度排行」为历次运行累积的整体统计。</p>
+  <p style="font-size:13px;color:#8898aa;margin:-6px 0 14px">每小时更新</p>
   {activity_html}
 </div>
 
@@ -2650,6 +2759,11 @@ def main():
         # 4. 解析和分析
         print('4. 解析和分析数据...')
         krs, name_map = parse_records(records)
+        # 4.1 反查不在跟进人/负责人字段里的更新人姓名（解决 *xxxxxx 显示问题）
+        unknown_ids = {kr.get('last_modified_by') for kr in krs} | {kr.get('created_by') for kr in krs}
+        unknown_ids = {u for u in unknown_ids if u}
+        if unknown_ids:
+            name_map = enrich_name_map(token, name_map, unknown_ids)
         a = analyze(krs, today)
         activity = compute_activity(krs, name_map, today)
         print(f'   有效KR: {len(krs)}, 平均进度: {a["overall_avg"]}%, 本周有进展: {a["updated_count"]}, 停滞: {a["stale_count"]}, 超目标日期: {a["overdue_count"]}')
@@ -2684,7 +2798,7 @@ def main():
 
         print('5. 生成HTML报告...')
         html = generate_html(a, today_str, week_str, comparison=comparison, ai_insight=ai_insight,
-                             activity=activity, edit_log_agg=edit_log_agg, edit_log_entries=edit_log_entries)
+                             activity=activity, edit_log_agg=edit_log_agg, edit_log_entries=edit_log_entries, name_map=name_map)
         html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'okr-report.html')
         # 可选：密码保护（设置 REPORT_PASSWORD 环境变量后启用）
         if REPORT_PASSWORD:
@@ -2829,7 +2943,20 @@ ACTIVITY_CSS = """.activity-grid { display: grid; grid-template-columns: 1fr 1fr
 .arch-date { color: #8898aa; font-variant-numeric: tabular-nums; }
 .arch-name { font-weight: 600; color: #1a1a2e; }
 .arch-o { color: #1a5f9e; font-weight: 700; }
-.arch-kr { color: #4a5568; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }"""
+.arch-kr { color: #4a5568; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.act-person-col { flex-direction: column; align-items: stretch; gap: 10px; }
+.act-person-top { display: flex; align-items: center; gap: 12px; }
+.wk-list { display: flex; flex-direction: column; gap: 8px; padding-left: 46px; }
+.wk-item { display: flex; gap: 10px; background: #f8f9fc; border: 1px solid #eef1f6; border-radius: 8px; padding: 8px 12px; }
+.wk-date { font-size: 11px; font-weight: 700; color: #1a5f9e; background: #e8f2fb; padding: 2px 8px; border-radius: 8px; height: fit-content; white-space: nowrap; flex-shrink: 0; }
+.wk-body { flex: 1; min-width: 0; }
+.wk-title { font-size: 13px; font-weight: 600; color: #1a1a2e; }
+.wk-desc { font-size: 12px; color: #4a5568; margin-top: 2px; line-height: 1.5; }
+.wk-desc.muted { color: #aab7b8; font-style: italic; }
+.wk-more { font-size: 12px; color: #8898aa; padding-left: 2px; }
+.rank-note { font-size: 12px; color: #8898aa; margin: -8px 0 12px; }
+.rank-bar-zero { background: #dde3ea; }
+.rank-num.zero { color: #aab7b8; }"""
 
 
 def build_notify_md(today_str, report_url, week_str='', password=''):

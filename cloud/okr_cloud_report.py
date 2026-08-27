@@ -702,7 +702,8 @@ def compute_activity(krs, name_map, today=None):
 
 def update_edit_log(krs, name_map, today_str=None):
     """持久化编辑日志：每次运行比对 last_modified_time，若比上次记录更新则追加一条。
-    多次运行（建议每日）后累积出每人的编辑次数，得到“谁经常更新”的排行。
+    首次运行（无 last_seen 基线）只建立基线快照，不写入 entries——
+    避免把表格记录的历史最后修改时间误记为“更新次数”导致排行虚高/统计范围失真。
     返回累计每人的编辑次数 {unionId: {'name','edits'}}。"""
     today_str = today_str or date.today().isoformat()
     data = {'last_seen': {}, 'entries': []}
@@ -715,28 +716,36 @@ def update_edit_log(krs, name_map, today_str=None):
     last_seen = data.get('last_seen', {})
     entries = data.get('entries', [])
     changed = False
-    for kr in krs:
-        rid = kr['recordId']
-        lmt = kr.get('last_modified_time')
-        if not lmt:
-            continue
-        prev = last_seen.get(rid)
-        if prev is None or lmt > prev:
-            try:
-                mod_dt = datetime.fromtimestamp(lmt / 1000)
-            except Exception:
+    if not last_seen:
+        # 首次运行：只建立基线（记录每条KR当前最后修改时间），不算“更新”
+        for kr in krs:
+            lmt = kr.get('last_modified_time')
+            if lmt:
+                last_seen[kr['recordId']] = lmt
+        changed = True
+    else:
+        for kr in krs:
+            rid = kr['recordId']
+            lmt = kr.get('last_modified_time')
+            if not lmt:
                 continue
-            who = kr.get('last_modified_by')
-            entries.append({
-                'date': mod_dt.strftime('%Y-%m-%d'),
-                'unionId': who,
-                'name': _resolve_name(who, name_map),
-                'recordId': rid,
-                'kr': kr['kr'],
-                'o': kr['o'],
-            })
-            last_seen[rid] = lmt
-            changed = True
+            prev = last_seen.get(rid)
+            if prev is None or lmt > prev:
+                try:
+                    mod_dt = datetime.fromtimestamp(lmt / 1000)
+                except Exception:
+                    continue
+                who = kr.get('last_modified_by')
+                entries.append({
+                    'date': mod_dt.strftime('%Y-%m-%d'),
+                    'unionId': who,
+                    'name': _resolve_name(who, name_map),
+                    'recordId': rid,
+                    'kr': kr['kr'],
+                    'o': kr['o'],
+                })
+                last_seen[rid] = lmt
+                changed = True
     if changed:
         try:
             with open(EDIT_LOG_PATH, 'w', encoding='utf-8') as f:
@@ -766,44 +775,34 @@ def load_edit_log_entries():
 
 
 def _gen_activity_html(activity, edit_log_agg, edit_log_entries=None, name_map=None):
-    """渲染「更新活跃度」板块：本周更新（含进展详情）+ 整体更新活跃度排行（含未更新人员）。
-    edit_log 仍在后台每次运行累积留档（edit_log.json），页面只展示汇总排行，不展示明细。"""
+    """渲染「更新活跃度」板块：本周更新（人+KR主题）+ 整体更新活跃度排行（全部人员含未更新）。
+    edit_log 仍在后台每次运行累积留档（edit_log.json），页面只展示汇总排行，不展示明细。
+    反查不到姓名的更新人（显示为 *xxxxxx 回退名）不出现在页面，避免无意义的ID展示。"""
     if not activity:
         return ''
     s = activity['summary']
-    # 本周更新（本周一至报告生成时，置顶；每人展示更新的KR及进展详情摘要）
-    week_list = activity.get('active') or []
+
+    def _ok_name(nm):
+        """姓名有效：非空且不是 *xxxxxx 回退名"""
+        return bool(nm) and not str(nm).startswith('*')
+
+    # 本周更新（本周一至报告生成时，置顶；只显示更新人 + KR主题）
+    week_list = [a for a in (activity.get('active') or []) if _ok_name(a.get('name'))]
     if week_list:
         person_rows = []
         for a in week_list:
-            items = []
-            for it in a['krs'][:6]:
-                title = it['kr'] if isinstance(it, dict) else it
-                desc = (it.get('desc') or '').strip() if isinstance(it, dict) else ''
-                date = (it.get('date') or '') if isinstance(it, dict) else ''
-                if desc:
-                    desc_short = desc if len(desc) <= 60 else desc[:60] + '…'
-                    item_html = (f'<div class="wk-item"><span class="wk-date">{_esc(date)}</span>'
-                                 f'<div class="wk-body"><div class="wk-title">{_esc(title)}</div>'
-                                 f'<div class="wk-desc">{_esc(desc_short)}</div></div></div>')
-                else:
-                    item_html = (f'<div class="wk-item"><span class="wk-date">{_esc(date)}</span>'
-                                 f'<div class="wk-body"><div class="wk-title">{_esc(title)}</div>'
-                                 f'<div class="wk-desc muted">（本次更新无进展详情，可能仅调整进度/状态）</div></div></div>')
-                items.append(item_html)
-            more = f'<div class="wk-more">… 还有 {len(a["krs"]) - 6} 项KR</div>' if len(a['krs']) > 6 else ''
+            krs = [_esc(it['kr'] if isinstance(it, dict) else it) for it in a['krs'][:8]]
+            more = f'<div class="wk-more">… 还有 {len(a["krs"]) - 8} 项KR</div>' if len(a['krs']) > 8 else ''
             person_rows.append(
-                f'<div class="act-person act-person-col">'
-                f'<div class="act-person-top"><span class="act-avatar">{_esc((a["name"] or "?")[:1])}</span>'
+                f'<div class="act-person"><span class="act-avatar">{_esc((a["name"] or "?")[:1])}</span>'
                 f'<div class="act-info"><div class="act-name">{_esc(a["name"])}</div>'
-                f'<div class="act-krs">本周更新 {len(a["krs"])} 项KR</div></div>'
+                f'<div class="act-krs">{"、".join(krs)}{more}</div></div>'
                 f'<div class="act-count">{len(a["krs"])}</div></div>'
-                f'<div class="wk-list">{"".join(items)}{more}</div></div>'
             )
         week_html = ''.join(person_rows)
         today_box = (
             f'<div class="today-box"><div class="today-head">🟢 本周更新 '
-            f'<span class="act-badge">{s["active_people"]} 人 / {s["active_krs"]} 项KR</span></div>'
+            f'<span class="act-badge">{len(week_list)} 人 / {s["active_krs"]} 项KR</span></div>'
             f'<div class="act-list">{week_html}</div></div>'
         )
     else:
@@ -814,10 +813,14 @@ def _gen_activity_html(activity, edit_log_agg, edit_log_entries=None, name_map=N
     # 更新活跃度排行：全部跟进人/负责人（含未更新），按累计编辑次数排序
     roster = {}
     for uid, nm in (name_map or {}).items():
-        roster[uid] = {'name': nm, 'edits': 0}
+        if _ok_name(nm):
+            roster[uid] = {'name': nm, 'edits': 0}
     for uid, v in (edit_log_agg or {}).items():
+        nm = v.get('name') or _resolve_name(uid, name_map)
+        if not _ok_name(nm):
+            continue
         if uid not in roster:
-            roster[uid] = {'name': v.get('name') or _resolve_name(uid, name_map), 'edits': 0}
+            roster[uid] = {'name': nm, 'edits': 0}
         roster[uid]['edits'] = v.get('edits', 0)
     ranked = sorted(roster.values(), key=lambda x: (-x['edits'], x['name']))
     # 统计时间范围（编辑日志首条 ~ 最新一条）
@@ -826,12 +829,11 @@ def _gen_activity_html(activity, edit_log_agg, edit_log_entries=None, name_map=N
         rng = f'{min(dates)} ~ {max(dates)}'
         range_badge = f'<span class="act-badge">统计范围：{_esc(rng)}</span>'
     else:
-        range_badge = '<span class="act-badge">统计范围：数据采集中</span>'
+        range_badge = '<span class="act-badge">统计范围：数据采集中（每小时运行累积中）</span>'
     if ranked:
         max_edits = max(1, ranked[0]['edits'])
-        visible = ranked[:30]
         rank_rows = []
-        for v in visible:
+        for v in ranked:
             if v['edits'] > 0:
                 pct = max(6, int(v['edits'] / max_edits * 100))
                 bar = (f'<span class="rank-bar-wrap"><span class="rank-bar" style="width:{pct}%"></span></span>'
@@ -841,8 +843,6 @@ def _gen_activity_html(activity, edit_log_agg, edit_log_entries=None, name_map=N
                        f'<span class="rank-num zero">{v["edits"]} 次</span>')
             rank_rows.append(f'<div class="rank-row"><span class="rank-name">{_esc(v["name"])}</span>{bar}</div>')
         rank_html = ''.join(rank_rows)
-        if len(ranked) > 30:
-            rank_html += f'<div class="act-empty">… 另有 {len(ranked) - 30} 人（0次更新）未列出</div>'
     else:
         rank_html = '<div class="act-empty">暂无跟进人数据（表格中未填写跟进人）</div>'
 

@@ -688,7 +688,7 @@ def update_edit_log(krs, name_map, today_str=None):
 
 
 def load_edit_log_entries():
-    """读取持久化编辑日志中的全部更新记录（按时间升序），用于报告内“更新留档”整体档案。"""
+    """读取持久化编辑日志中的全部更新记录（按时间升序）。仅用于后台留档数据，页面不再展示明细。"""
     if not os.path.exists(EDIT_LOG_PATH):
         return []
     try:
@@ -700,11 +700,12 @@ def load_edit_log_entries():
 
 
 def _gen_activity_html(activity, edit_log_agg, edit_log_entries=None):
-    """渲染「更新活跃度」板块：今日更新 / 本周活跃跟进人 / 沉默预警 / 累计更新排行 / 更新留档"""
+    """渲染「更新活跃度」板块：今日更新 + 整体更新活跃度排行。
+    edit_log 仍在后台每次运行累积留档（edit_log.json），页面只展示汇总排行，不展示明细。"""
     if not activity:
         return ''
     s = activity['summary']
-    # 今日更新（每日抓取的核心产出，置顶）
+    # 今日更新（每小时抓取的核心产出，置顶）
     if activity.get('today'):
         today_html = ''.join(
             f'<div class="act-person"><span class="act-avatar">{_esc((a["name"] or "?")[:1])}</span>'
@@ -721,21 +722,9 @@ def _gen_activity_html(activity, edit_log_agg, edit_log_entries=None):
     else:
         today_box = (
             '<div class="today-box today-empty">🟡 今日（截至报告生成时）暂无人更新KR进度'
-            '<span class="today-tip">—— 脚本每日运行，下次运行将捕获当天的更新</span></div>'
+            '<span class="today-tip">—— 脚本每小时运行，下次运行将捕获最新更新</span></div>'
         )
-    active_html = ''.join(
-        f'<div class="act-person"><span class="act-avatar">{_esc((a["name"] or "?")[:1])}</span>'
-        f'<div class="act-info"><div class="act-name">{_esc(a["name"])}</div>'
-        f'<div class="act-krs">{_esc("、".join(a["krs"][:6]))}{(" 等" + str(len(a["krs"])) + "项") if len(a["krs"]) > 6 else ""}</div></div>'
-        f'<div class="act-count">{len(a["krs"])}</div></div>'
-        for a in activity['active']
-    ) or '<div class="act-empty">本周暂无KR更新记录</div>'
-    silent_html = ''.join(
-        f'<div class="silent-item"><span class="silent-days">超 {x["days_since"]} 天</span>'
-        f'<div class="silent-info"><div class="silent-kr">{_esc(x["kr"])}</div>'
-        f'<div class="silent-owner">负责人：{_esc("、".join(x["followers"]) if x["followers"] else "未指定")} · 最后更新：{_esc(x["last_by"])}</div></div></div>'
-        for x in activity['silent'][:12]
-    ) or '<div class="act-empty">无长期未更新项，保持得不错 👍</div>'
+    # 更新活跃度排行（整体：来自历次运行累积的编辑日志汇总）
     ranked = sorted(edit_log_agg.values(), key=lambda v: -v['edits'])
     if ranked:
         max_edits = max(1, ranked[0]['edits'])
@@ -746,58 +735,16 @@ def _gen_activity_html(activity, edit_log_agg, edit_log_entries=None):
             for v in ranked[:10]
         )
     else:
-        rank_html = '<div class="act-empty">累计数据采集中（运行数周后更准确）</div>'
-    # 更新留档（整体档案，来自多次运行的编辑日志）
-    entries = edit_log_entries or []
-    if entries:
-        arch_rows = ''.join(
-            f'<div class="arch-row"><span class="arch-date">{_esc(e.get("date", ""))}</span>'
-            f'<span class="arch-name">{_esc(e.get("name") or "?")}</span>'
-            f'<span class="arch-o">{_esc(e.get("o") or "")}</span>'
-            f'<span class="arch-kr">{_esc(e.get("kr") or "")}</span></div>'
-            for e in reversed(entries[-60:])
-        )
-        arch_html = (f'<div class="act-col full"><div class="act-col-title">更新留档（整体档案）'
-                     f'<span class="act-badge">{len(entries)} 条记录</span></div>'
-                     f'<details class="arch-details"><summary>点击展开 / 收起（显示最近 60 条）</summary>'
-                     f'<div class="arch-list">{arch_rows}</div></details></div>')
-    else:
-        arch_html = ''
+        rank_html = '<div class="act-empty">累计数据采集中（运行数天后更准确）</div>'
 
     return f'''
 {today_box}
 <div class="activity-grid">
-  <div class="act-col">
-    <div class="act-col-title">本周活跃跟进人 <span class="act-badge">{s['active_people']} 人 / {s['active_krs']} 项KR</span></div>
-    <div class="act-list">{active_html}</div>
-  </div>
-  <div class="act-col">
-    <div class="act-col-title">更新沉默预警 <span class="act-badge warn">{s['silent_krs']} 项超14天未更新</span></div>
-    <div class="act-list">{silent_html}</div>
-  </div>
   <div class="act-col full">
-    <div class="act-col-title">累计更新排行（谁经常更新）</div>
+    <div class="act-col-title">更新活跃度排行 <span class="act-badge">按累计更新次数</span></div>
     <div class="rank-list">{rank_html}</div>
   </div>
-  {arch_html}
 </div>'''
-
-
-    """极简钉钉通知：仅标题 + 一句引导 + 链接，完整内容见网页报告。"""
-    title_suffix = f' {week_str}' if week_str else ''
-    lines = []
-    lines.append(f'# 全国网点OKR推进周报{title_suffix}')
-    lines.append('')
-    lines.append('本周报告已生成，完整内容（智能洞察 指标 · 进度 · 重点关注 · 历史周报）请点击下方查看 👇')
-    lines.append('')
-    if report_url:
-        lines.append(f'[📊 查看完整报告]({report_url})')
-    else:
-        lines.append('> 报告链接暂未配置（REPORT_URL 为空）')
-    if password:
-        lines.append('')
-        lines.append(f'🔒 访问密码：{password}')
-    return '\n'.join(lines)
 
 
 def generate_markdown(a, today_str, report_url=None, week_str='', comparison=None):
@@ -2383,8 +2330,8 @@ def generate_html(a, today_str, week_str='', comparison=None, ai_insight=None, a
 </div>
 
 <div class="section" id="sec-activity">
-  <h2>更新活跃度 <small style="font-weight:400;color:#8898aa;font-size:12px;margin-left:8px">谁在更新进度 · 谁很少更新</small></h2>
-  <p style="font-size:13px;color:#8898aa;margin:-6px 0 14px">脚本每日运行，依据钉钉AI表格每条记录的最后修改人与修改时间统计；「今日更新」反映当天的进度更新，「更新留档」为所有运行累积的整体档案（运行越频繁越准）。</p>
+  <h2>更新活跃度</h2>
+  <p style="font-size:13px;color:#8898aa;margin:-6px 0 14px">脚本每小时运行，依据钉钉AI表格每条记录的最后修改人与修改时间统计；「今日更新」反映当天（截至最近一次运行）的进度更新，「更新活跃度排行」为历次运行累积的整体统计。</p>
   {activity_html}
 </div>
 

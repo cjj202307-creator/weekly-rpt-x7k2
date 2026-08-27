@@ -951,18 +951,21 @@ CSS_TEXT = """
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; background: #FFFFFF; color: #000000; line-height: 1.6; }
 .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
-.header { background: linear-gradient(135deg, #000000 0%, #BD3E34 50%, #BD3E34 100%); border-radius: 18px; padding: 34px 38px; margin-bottom: 22px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); color: #fff; }
-.header-logo { margin-bottom: 18px; display: inline-block; padding: 10px 18px; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.20); border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.18); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.header { position: relative; background: #FFFFFF; border: 1px solid #EEEEEE; border-radius: 18px; padding: 30px 38px 92px; margin-bottom: 22px; box-shadow: 0 10px 40px rgba(0,0,0,0.08); color: #000000; overflow: hidden; }
+.header > * { position: relative; z-index: 1; }
+.header::before { content: ''; position: absolute; bottom: 0; left: 0; width: 100%; height: 64px; background: linear-gradient(135deg, #E84834 0%, #BD3E34 100%); clip-path: polygon(0 30%, 100% 0, 100% 100%, 0 100%); z-index: 0; }
+.header::after { content: ''; position: absolute; bottom: 0; left: 0; width: 100%; height: 64px; background: #FDECEA; clip-path: polygon(0 12%, 100% 0, 100% 18%, 0 30%); z-index: 0; }
+.header-logo { margin-bottom: 18px; display: inline-block; padding: 10px 18px; background: #FDECEA; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.06); }
     .header-logo img { max-height: 54px; max-width: 100%; height: auto; width: auto; display: block; }
 .header-brand { display: flex; align-items: center; gap: 18px; margin-bottom: 16px; }
 .header-icon { width: 52px; height: 52px; border-radius: 14px; background: linear-gradient(135deg, #E84834 0%, #BD3E34 100%); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; color: #fff; letter-spacing: 1px; box-shadow: 0 4px 12px rgba(232,72,52,0.35); flex-shrink: 0; }
 .header-titles { flex: 1; min-width: 0; }
-.header h1 { font-size: 26px; font-weight: 800; color: #fff; margin-bottom: 6px; letter-spacing: -0.3px; }
-.header-subtitle { font-size: 14px; color: rgba(255,255,255,0.72); font-weight: 400; }
-.header .meta { font-size: 13px; color: rgba(255,255,255,0.65); display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px; }
+.header h1 { font-size: 26px; font-weight: 800; color: #000000; margin-bottom: 6px; letter-spacing: -0.3px; }
+.header-subtitle { font-size: 14px; color: #868686; font-weight: 400; }
+.header .meta { font-size: 13px; color: #868686; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px; }
 .header .meta span { margin-right: 0; }
-.header .meta-tag { display: inline-block; background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.9); font-size: 11px; padding: 3px 10px; border-radius: 12px; font-weight: 600; border: 1px solid rgba(255,255,255,0.15); }
-.header .badge-base { display: inline-block; background: rgba(232,72,52,0.2); color: #FFFFFF; font-size: 11px; padding: 2px 10px; border-radius: 10px; font-weight: 600; }
+.header .meta-tag { display: inline-block; background: #FDECEA; color: #BD3E34; font-size: 11px; padding: 3px 10px; border-radius: 12px; font-weight: 600; }
+.header .badge-base { display: inline-block; background: #FDECEA; color: #BD3E34; font-size: 11px; padding: 2px 10px; border-radius: 10px; font-weight: 600; }
 .exec-summary { background: #fff; border-radius: 14px; padding: 26px 34px; margin-bottom: 18px; box-shadow: 0 4px 16px rgba(0,0,0,0.06); border-left: 4px solid #E84834; }
 .exec-summary h2 { font-size: 17px; font-weight: 700; color: #000000; margin-bottom: 14px; }
 .exec-summary ul { list-style: none; }
@@ -1045,7 +1048,7 @@ table.kr-table .kr-cell small { color: #868686; font-size: 11px; }
 /* 响应式：小屏幕优化 */
 @media (max-width: 768px) {
   .container { padding: 10px; }
-  .header { padding: 18px 20px; }
+  .header { padding: 18px 20px 82px; }
   .section { padding: 16px 18px; }
   .metrics { grid-template-columns: repeat(3, 1fr); gap: 8px; }
   .metric-card { padding: 14px 10px; }

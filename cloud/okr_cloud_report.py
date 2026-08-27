@@ -700,28 +700,74 @@ def compute_activity(krs, name_map, today=None):
     }
 
 
+# 内容级留档跟踪的字段：(kr字典键, 展示名, 类型text/pct)
+EDIT_TRACK_FIELDS = [
+    ('krDesc', '关键结果描述', 'text'),
+    ('progress', '推进进度', 'pct'),
+    ('status', '完成状态', 'text'),
+    ('blocker', '卡点', 'text'),
+    ('siteGoal', '网点目标', 'text'),
+]
+
+
+def _text_diff(old, new):
+    """对比两段文本，返回 (removed, added, mode)。
+    例：old='A', new='A+B' → added='+B'部分即'B'——留档只记增量，不记全文。
+    mode: 'same'无变化 / 'append'纯追加 / 'edit'局部修改 / 'rewrite'无公共前后缀(整段重写)。"""
+    old = '' if old is None else str(old).strip()
+    new = '' if new is None else str(new).strip()
+    if old == new:
+        return '', '', 'same'
+    i = 0
+    while i < min(len(old), len(new)) and old[i] == new[i]:
+        i += 1
+    j = 0
+    while j < min(len(old), len(new)) - i and old[len(old) - 1 - j] == new[len(new) - 1 - j]:
+        j += 1
+    added = new[i:len(new) - j]
+    removed = old[i:len(old) - j]
+    if i == 0 and j == 0:
+        mode = 'rewrite'
+    elif not removed:
+        mode = 'append'
+    else:
+        mode = 'edit'
+    return removed, added, mode
+
+
 def update_edit_log(krs, name_map, today_str=None):
-    """持久化编辑日志：每次运行比对 last_modified_time，若比上次记录更新则追加一条。
-    首次运行（无 last_seen 基线）只建立基线快照，不写入 entries——
+    """持久化编辑日志（内容级留档）：每次运行比对 last_modified_time，若记录被修改则进一步
+    比对该记录各跟踪字段（关键结果描述/推进进度/完成状态/卡点/网点目标）的上次快照值，
+    留档：更新人、KR主题、每个字段的【新增内容=增量】（A→A+B 只记 B）+ 修改前后全文对照。
+    首次运行（无 last_seen 基线）只建立基线快照（含字段值快照），不写入 entries——
     避免把表格记录的历史最后修改时间误记为“更新次数”导致排行虚高/统计范围失真。
     返回累计每人的编辑次数 {unionId: {'name','edits'}}。"""
     today_str = today_str or date.today().isoformat()
-    data = {'last_seen': {}, 'entries': []}
+    data = {'last_seen': {}, 'field_snapshot': {}, 'entries': []}
     if os.path.exists(EDIT_LOG_PATH):
         try:
             with open(EDIT_LOG_PATH, 'r', encoding='utf-8') as f:
                 data = json.load(f)
         except Exception:
             pass
-    last_seen = data.get('last_seen', {})
-    entries = data.get('entries', [])
+    data.setdefault('last_seen', {})
+    data.setdefault('field_snapshot', {})
+    data.setdefault('entries', [])
+    last_seen = data['last_seen']
+    fsnap = data['field_snapshot']
+    entries = data['entries']
     changed = False
+
+    def _snap_of(kr):
+        return {key: kr.get(key) for key, _lbl, _t in EDIT_TRACK_FIELDS}
+
     if not last_seen:
-        # 首次运行：只建立基线（记录每条KR当前最后修改时间），不算“更新”
+        # 首次运行：只建立基线（记录每条KR当前最后修改时间+字段值快照），不算“更新”
         for kr in krs:
             lmt = kr.get('last_modified_time')
             if lmt:
                 last_seen[kr['recordId']] = lmt
+                fsnap[kr['recordId']] = _snap_of(kr)
         changed = True
     else:
         for kr in krs:
@@ -736,20 +782,53 @@ def update_edit_log(krs, name_map, today_str=None):
                 except Exception:
                     continue
                 who = kr.get('last_modified_by')
+                # 内容级对比：与上次抓取的字段快照逐一比对，提取增量
+                prev_snap = fsnap.get(rid)
+                changes = []
+                for key, label, ftype in EDIT_TRACK_FIELDS:
+                    cur_v = kr.get(key)
+                    old_v = prev_snap.get(key) if prev_snap is not None else None
+                    if prev_snap is not None and cur_v == old_v:
+                        continue
+                    if ftype == 'pct':
+                        if prev_snap is None:
+                            changes.append({'field': label, 'type': 'pct', 'before': None,
+                                            'after': cur_v, 'added': None, 'note': '首次记录'})
+                        else:
+                            delta = (cur_v or 0) - (old_v or 0)
+                            changes.append({'field': label, 'type': 'pct', 'before': old_v,
+                                            'after': cur_v, 'added': f'{delta:+d}%', 'note': ''})
+                    else:
+                        if prev_snap is None:
+                            if cur_v:
+                                changes.append({'field': label, 'type': 'text', 'before': None,
+                                                'after': str(cur_v), 'added': str(cur_v), 'removed': '',
+                                                'note': '首次记录'})
+                        else:
+                            removed, added, dmode = _text_diff(old_v, cur_v)
+                            if dmode != 'same':
+                                changes.append({'field': label, 'type': 'text',
+                                                'before': str(old_v or ''), 'after': str(cur_v or ''),
+                                                'added': added, 'removed': removed,
+                                                'note': '整段重写' if dmode == 'rewrite' else ''})
                 entries.append({
                     'date': mod_dt.strftime('%Y-%m-%d'),
+                    'ts': datetime.now().strftime('%Y-%m-%d %H:%M'),
                     'unionId': who,
                     'name': _resolve_name(who, name_map),
                     'recordId': rid,
                     'kr': kr['kr'],
                     'o': kr['o'],
+                    'changes': changes,
                 })
                 last_seen[rid] = lmt
                 changed = True
+            # 无论是否变化，刷新字段快照作为下次比对的基线
+            fsnap[rid] = _snap_of(kr)
     if changed:
         try:
             with open(EDIT_LOG_PATH, 'w', encoding='utf-8') as f:
-                json.dump({'last_seen': last_seen, 'entries': entries}, f, ensure_ascii=False, indent=2)
+                json.dump({'last_seen': last_seen, 'field_snapshot': fsnap, 'entries': entries}, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f'   警告：编辑日志保存失败: {e}', file=sys.stderr)
     # 累计每人的编辑次数
@@ -772,6 +851,149 @@ def load_edit_log_entries():
         return data.get('entries', []) or []
     except Exception:
         return []
+
+
+EDIT_LOG_PAGE_CSS = '''
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: #FFFFFF; color: #000000; padding: 28px 18px 60px; }
+.wrap { max-width: 860px; margin: 0 auto; }
+.back { margin-bottom: 18px; }
+.back a { color: #BD3E34; text-decoration: none; font-size: 13px; font-weight: 600; }
+.lg-header { background: #FFFFFF; border: 1px solid #EEEEEE; border-radius: 14px; padding: 24px 28px 20px; margin-bottom: 20px; position: relative; overflow: hidden; }
+.lg-header::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 6px; background: linear-gradient(120deg, #E84834 0%, #BD3E34 100%); }
+.lg-header h1 { font-size: 21px; font-weight: 800; color: #000000; margin-bottom: 8px; }
+.lg-header .sub { font-size: 13px; color: #868686; line-height: 1.7; }
+.lg-stats { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; }
+.lg-stat { background: #FDECEA; color: #BD3E34; font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 12px; }
+.lg-item { background: #FFFFFF; border: 1px solid #EEEEEE; border-radius: 12px; padding: 16px 18px; margin-bottom: 12px; }
+.lg-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; margin-bottom: 10px; }
+.lg-avatar { width: 30px; height: 30px; border-radius: 50%; background: #BD3E34; color: #FFFFFF; font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.lg-name { font-size: 15px; font-weight: 700; color: #000000; }
+.lg-o { background: #EEEEEE; color: #868686; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 8px; }
+.lg-kr { font-size: 13px; color: #868686; flex: 1 1 200px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lg-date { font-size: 12px; color: #868686; margin-left: auto; }
+.lg-chg { border-top: 1px solid #EEEEEE; padding-top: 10px; margin-top: 2px; }
+.lg-chg + .lg-chg { margin-top: 8px; }
+.lg-field { font-size: 12px; font-weight: 700; color: #868686; margin-bottom: 6px; }
+.lg-add { background: #FDECEA; color: #BD3E34; border-radius: 8px; padding: 8px 12px; font-size: 13px; line-height: 1.7; margin-bottom: 4px; white-space: pre-wrap; word-break: break-word; }
+.lg-del { color: #868686; font-size: 12px; line-height: 1.6; text-decoration: line-through; white-space: pre-wrap; word-break: break-word; margin-bottom: 4px; }
+.lg-note { display: inline-block; font-size: 11px; color: #E84834; font-weight: 600; margin-bottom: 4px; }
+.lg-pct { font-size: 14px; font-weight: 700; color: #000000; }
+.lg-pct .delta { color: #BD3E34; }
+.lg-pct .arrow { color: #868686; font-weight: 400; }
+.lg-none { font-size: 12px; color: #868686; line-height: 1.6; }
+details.lg-full { margin-top: 4px; }
+details.lg-full summary { font-size: 12px; color: #868686; cursor: pointer; user-select: none; }
+details.lg-full .fullrow { font-size: 12px; color: #868686; line-height: 1.7; margin-top: 6px; white-space: pre-wrap; word-break: break-word; background: #EEEEEE; border-radius: 8px; padding: 8px 12px; }
+details.lg-full .fullrow b { color: #000000; font-weight: 700; }
+.lg-empty { text-align: center; color: #868686; font-size: 14px; padding: 60px 0; }
+@media (max-width: 600px) { .lg-kr { white-space: normal; } .lg-date { margin-left: 0; } }
+'''
+
+
+def _gen_edit_log_page(entries, out_path, today_str=None):
+    """生成「更新留档」独立页面 docs/edit-log.html：
+    每条更新记录 = 更新人 + KR主题 + 具体更新内容（增量为主显，修改前后全文折叠可查）。
+    增量逻辑：'A' 更新为 'A+B' 时，新增内容只显示 '+B'，不显示合并后的全文。"""
+    today_str = today_str or date.today().isoformat()
+    items = list(entries or [])
+    items.sort(key=lambda e: (str(e.get('date', '')), str(e.get('ts', ''))), reverse=True)
+
+    def _ok_name(nm):
+        nm = str(nm or '')
+        return bool(nm) and not nm.startswith('*')
+
+    shown = [e for e in items if _ok_name(e.get('name'))]
+    people = sorted({e['name'] for e in shown})
+    n_with_content = sum(1 for e in shown if e.get('changes'))
+    stats_html = (
+        f'<span class="lg-stat">共 {len(shown)} 条更新</span>'
+        f'<span class="lg-stat">{len(people)} 位更新人</span>'
+        f'<span class="lg-stat">{n_with_content} 条含内容明细</span>'
+        f'<span class="lg-stat">生成于 {today_str}</span>'
+    )
+
+    if not shown:
+        body = '<div class="lg-empty">暂无更新留档记录<br><br>脚本每小时运行，表格发生更新后此处会自动累积</div>'
+    else:
+        cards = []
+        for e in shown:
+            nm = str(e.get('name') or '?')
+            ts = e.get('ts') or e.get('date') or ''
+            changes = e.get('changes')
+            if changes is None:
+                chg_html = ('<div class="lg-chg"><div class="lg-none">'
+                            '（历史记录：内容级留档功能上线前，未留存具体更新内容）</div></div>')
+            elif not changes:
+                chg_html = ('<div class="lg-chg"><div class="lg-none">'
+                            '该记录被修改，但关键结果描述/推进进度/完成状态/卡点/网点目标五个跟踪字段无变化'
+                            '（可能调整了里程碑、负责人等其他字段）</div></div>')
+            else:
+                parts = []
+                for c in changes:
+                    field = _esc(c.get('field', ''))
+                    if c.get('type') == 'pct':
+                        if c.get('added') is None:
+                            line = (f'<div class="lg-pct">{_esc(str(c.get("after")))}%'
+                                    f'<span class="lg-note" style="margin-left:8px">首次记录</span></div>')
+                        else:
+                            line = (f'<div class="lg-pct">{_esc(str(c.get("before")))}%'
+                                    f'<span class="arrow"> → </span>{_esc(str(c.get("after")))}%'
+                                    f' <span class="delta">（{_esc(str(c.get("added")))}）</span></div>')
+                        parts.append(f'<div class="lg-chg"><div class="lg-field">{field}</div>{line}</div>')
+                    else:
+                        added = c.get('added') or ''
+                        removed = c.get('removed') or ''
+                        note = c.get('note') or ''
+                        note_html = f'<span class="lg-note">{_esc(note)}</span>' if note else ''
+                        add_html = f'<div class="lg-add">+ {_esc(added)}</div>' if added else ''
+                        del_html = f'<div class="lg-del">- {_esc(removed)}</div>' if removed else ''
+                        before = c.get('before')
+                        after = c.get('after') or ''
+                        if before is None:
+                            full_html = (f'<details class="lg-full"><summary>展开首次填写全文</summary>'
+                                         f'<div class="fullrow">{_esc(after)}</div></details>')
+                        else:
+                            full_html = (f'<details class="lg-full"><summary>展开修改前后全文对照</summary>'
+                                         f'<div class="fullrow"><b>改前：</b>{_esc(before)}</div>'
+                                         f'<div class="fullrow"><b>改后：</b>{_esc(after)}</div></details>')
+                        parts.append(f'<div class="lg-chg"><div class="lg-field">{field} {note_html}</div>'
+                                     f'{add_html}{del_html}{full_html}</div>')
+                chg_html = ''.join(parts)
+            cards.append(
+                f'<div class="lg-item"><div class="lg-head">'
+                f'<span class="lg-avatar">{_esc(nm[:1])}</span>'
+                f'<span class="lg-name">{_esc(nm)}</span>'
+                f'<span class="lg-o">{_esc(str(e.get("o", "")))}</span>'
+                f'<span class="lg-kr">{_esc(str(e.get("kr", "")))}</span>'
+                f'<span class="lg-date">{_esc(ts)}</span></div>{chg_html}</div>'
+            )
+        body = ''.join(cards)
+
+    html = f'''<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>更新留档 · 网点OKR推进</title>
+<style>{EDIT_LOG_PAGE_CSS}</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="back"><a href="index.html">← 返回最新周报</a></div>
+  <div class="lg-header">
+    <h1>更新留档</h1>
+    <div class="sub">每条记录 = 更新人 + KR主题 + 具体更新内容。内容为两次运行间的<b>增量</b>：
+    原"A"更新为"A+B"时只记"+B"；点击"修改前后全文对照"可查完整原文。脚本每小时运行，
+    同一小时内多次编辑会合并为一条增量。</div>
+    <div class="lg-stats">{stats_html}</div>
+  </div>
+  {body}
+</div>
+</body>
+</html>'''
+    with open(out_path, 'w', encoding='utf-8') as f:
+        f.write(html)
 
 
 def _gen_activity_html(activity, edit_log_agg, edit_log_entries=None, name_map=None):
@@ -860,6 +1082,7 @@ def _gen_activity_html(activity, edit_log_agg, edit_log_entries=None, name_map=N
       <div class="rank-note">按累计更新次数排序，包含未更新人员（灰条为 0 次）</div>
       <div class="rank-list">{rank_html}</div>
     </details>
+    <div style="margin-top:10px;text-align:right;"><a href="edit-log.html" style="color:#BD3E34;font-size:13px;font-weight:600;text-decoration:none;">📄 更新留档：更新人 · 主题 · 具体更新内容（增量） →</a></div>
   </div>
 </div>'''
 
@@ -2829,6 +3052,7 @@ def main():
             archive_path = os.path.join(archive_dir, f'okr-report-{today_str}.html')
             # 归档文件位于 docs/archive/ 子目录，资源相对路径需指向上一级 docs/
             archive_html = html.replace('src="assets/hmg-logo.png"', 'src="../assets/hmg-logo.png"')
+            archive_html = archive_html.replace('href="edit-log.html"', 'href="../edit-log.html"')
             if REPORT_PASSWORD:
                 archive_html = protect_html(archive_html, REPORT_PASSWORD)
             with open(archive_path, 'w', encoding='utf-8') as f:
@@ -2836,6 +3060,13 @@ def main():
             print(f'   归档HTML已保存: {archive_path}')
             _gen_archive_index(archive_dir)
             print(f'   归档索引已更新')
+            # 5.15 更新留档独立页面（编辑日志内容级明细：更新人·主题·增量内容）
+            try:
+                editlog_path = os.path.join(repo_root, 'docs', 'edit-log.html')
+                _gen_edit_log_page(edit_log_entries, editlog_path, today_str)
+                print(f'   更新留档页面已保存: {editlog_path}')
+            except Exception as e:
+                print(f'   警告：更新留档页面保存失败（不影响主流程）: {e}', file=sys.stderr)
         except Exception as e:
             print(f'   警告：归档保存失败（不影响主流程）: {e}', file=sys.stderr)
 

@@ -700,28 +700,29 @@ def load_edit_log_entries():
 
 
 def _gen_activity_html(activity, edit_log_agg, edit_log_entries=None):
-    """渲染「更新活跃度」板块：今日更新 + 整体更新活跃度排行。
+    """渲染「更新活跃度」板块：本周更新 + 整体更新活跃度排行。
     edit_log 仍在后台每次运行累积留档（edit_log.json），页面只展示汇总排行，不展示明细。"""
     if not activity:
         return ''
     s = activity['summary']
-    # 今日更新（每小时抓取的核心产出，置顶）
-    if activity.get('today'):
-        today_html = ''.join(
+    # 本周更新（本周一至报告生成时，置顶）
+    week_list = activity.get('active') or []
+    if week_list:
+        week_html = ''.join(
             f'<div class="act-person"><span class="act-avatar">{_esc((a["name"] or "?")[:1])}</span>'
             f'<div class="act-info"><div class="act-name">{_esc(a["name"])}</div>'
             f'<div class="act-krs">{_esc("、".join(a["krs"][:6]))}{(" 等" + str(len(a["krs"])) + "项") if len(a["krs"]) > 6 else ""}</div></div>'
             f'<div class="act-count">{len(a["krs"])}</div></div>'
-            for a in activity['today']
+            for a in week_list
         )
         today_box = (
-            f'<div class="today-box"><div class="today-head">🟢 今日更新 '
-            f'<span class="act-badge">{s["today_people"]} 人 / {s["today_krs"]} 项KR</span></div>'
-            f'<div class="act-list">{today_html}</div></div>'
+            f'<div class="today-box"><div class="today-head">🟢 本周更新 '
+            f'<span class="act-badge">{s["active_people"]} 人 / {s["active_krs"]} 项KR</span></div>'
+            f'<div class="act-list">{week_html}</div></div>'
         )
     else:
         today_box = (
-            '<div class="today-box today-empty">🟡 今日（截至报告生成时）暂无人更新KR进度'
+            '<div class="today-box today-empty">🟡 本周（周一至报告生成时）暂无人更新KR进度'
             '<span class="today-tip">—— 脚本每小时运行，下次运行将捕获最新更新</span></div>'
         )
     # 更新活跃度排行（整体：来自历次运行累积的编辑日志汇总）
@@ -2331,7 +2332,7 @@ def generate_html(a, today_str, week_str='', comparison=None, ai_insight=None, a
 
 <div class="section" id="sec-activity">
   <h2>更新活跃度</h2>
-  <p style="font-size:13px;color:#8898aa;margin:-6px 0 14px">脚本每小时运行，依据钉钉AI表格每条记录的最后修改人与修改时间统计；「今日更新」反映当天（截至最近一次运行）的进度更新，「更新活跃度排行」为历次运行累积的整体统计。</p>
+  <p style="font-size:13px;color:#8898aa;margin:-6px 0 14px">脚本每小时运行，依据钉钉AI表格每条记录的最后修改人与修改时间统计；「本周更新」反映本周一至最近一次运行的进度更新，「更新活跃度排行」为历次运行累积的整体统计。</p>
   {activity_html}
 </div>
 
@@ -2656,7 +2657,7 @@ def main():
         edit_log_agg = update_edit_log(krs, name_map, today_str)
         edit_log_entries = load_edit_log_entries()
         print(f'   编辑日志已更新，累计{len(edit_log_agg)}人参与更新，共{len(edit_log_entries)}条更新记录')
-        print(f'   今日更新：{activity["summary"]["today_people"]}人更新了{activity["summary"]["today_krs"]}项KR')
+        print(f'   今日更新：{activity["summary"]["today_people"]}人更新了{activity["summary"]["today_krs"]}项KR（页面展示为本周维度）')
 
         # 4.5 读取上周快照并计算环比
         print('4.5. 计算周环比...')

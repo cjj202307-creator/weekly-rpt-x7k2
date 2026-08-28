@@ -191,6 +191,16 @@ def send_group_message(webhook, title, markdown_text):
         return None
     return result
 
+def today_beijing():
+    """返回北京时间（UTC+8）的当前日期"""
+    return (datetime.now(timezone.utc) + timedelta(hours=8)).date()
+
+
+def now_beijing():
+    """返回北京时间（UTC+8）的当前 datetime"""
+    return datetime.now(timezone.utc) + timedelta(hours=8)
+
+
 # ===== 数据处理 =====
 
 def parse_records(records):
@@ -199,7 +209,7 @@ def parse_records(records):
     用于统计“谁在更新进度”。返回 (krs, unionid_name_map)。"""
     krs = []
     name_map = {}  # unionId -> name（主要来自跟进人字段，用于解析修改人姓名）
-    today = date.today()
+    today = today_beijing()
 
     for rec in records:
         fields = rec.get('fields', {})
@@ -467,7 +477,7 @@ def enrich_name_map(token, name_map, ids):
 
 def _snapshot_path(today_str=None):
     """生成本次快照文件路径"""
-    today_str = today_str or date.today().isoformat()
+    today_str = today_str or today_beijing().isoformat()
     return os.path.join(SNAPSHOT_DIR, f'okr-snapshot-{today_str}.json')
 
 def _ensure_snapshot_dir():
@@ -479,7 +489,7 @@ def save_snapshot(a, today_str, week_str):
     snapshot = {
         'week': week_str,
         'date': today_str,
-        'generated_at': datetime.now().isoformat(),
+        'generated_at': now_beijing().isoformat(),
         'summary': {
             'overall_avg': a['overall_avg'],
             'updated_count': a['updated_count'],
@@ -512,7 +522,7 @@ def save_snapshot(a, today_str, week_str):
 def load_previous_snapshot(today_str=None):
     """加载上一周（不同ISO周）的历史快照。同周多次运行不对比。"""
     _ensure_snapshot_dir()
-    today = date.fromisoformat(today_str) if today_str else date.today()
+    today = date.fromisoformat(today_str) if today_str else today_beijing()
     today_iso = today.isocalendar()  # (year, week, weekday)
     files = []
     if os.path.isdir(SNAPSHOT_DIR):
@@ -626,7 +636,7 @@ def compare_with_previous(a, prev_snapshot):
 
 def get_iso_week(d=None):
     """返回ISO周数，如 W30"""
-    d = d or date.today()
+    d = d or today_beijing()
     iso = d.isocalendar()
     return f'W{iso[1]:02d}'
 
@@ -643,10 +653,11 @@ def compute_activity(krs, name_map, today=None):
     """基于每条KR的 lastModifiedBy / lastModifiedTime 计算更新活跃度。
     返回: today(今日更新的人及KR)、active(本周更新的人及KR)、silent(长期未更新的KR)、summary。
     注意：钉钉AI表格仅暴露记录级“最后修改人/最后修改时间”，非单元格级历史，
-    故“今日/本周更新”取的是当天/本周内最后一次修改该KR的人。"""
-    today = today or date.today()
+    故“今日/本周更新”取的是当天/本周内最后一次修改该KR的人。
+    时间统一按北京时间（UTC+8）处理。"""
+    today = today or today_beijing()
     monday = today - timedelta(days=today.weekday())  # 本周一
-    now = datetime.now()
+    now = now_beijing()
     today_list = {}  # unionId -> {'name','unionId','krs':[...]}  今日更新
     active = {}   # unionId -> {'name','unionId','krs':[...]}  本周更新
     silent = []
@@ -655,7 +666,7 @@ def compute_activity(krs, name_map, today=None):
         if not lmt:
             continue
         try:
-            mod_dt = datetime.fromtimestamp(lmt / 1000)
+            mod_dt = datetime.fromtimestamp(lmt / 1000, tz=timezone.utc) + timedelta(hours=8)
         except Exception:
             continue
         who = kr.get('last_modified_by')
@@ -742,7 +753,7 @@ def update_edit_log(krs, name_map, today_str=None):
     首次运行（无 last_seen 基线）只建立基线快照（含字段值快照），不写入 entries——
     避免把表格记录的历史最后修改时间误记为“更新次数”导致排行虚高/统计范围失真。
     返回累计每人的编辑次数 {unionId: {'name','edits'}}。"""
-    today_str = today_str or date.today().isoformat()
+    today_str = today_str or today_beijing().isoformat()
     data = {'last_seen': {}, 'field_snapshot': {}, 'entries': []}
     if os.path.exists(EDIT_LOG_PATH):
         try:
@@ -778,7 +789,7 @@ def update_edit_log(krs, name_map, today_str=None):
             prev = last_seen.get(rid)
             if prev is None or lmt > prev:
                 try:
-                    mod_dt = datetime.fromtimestamp(lmt / 1000)
+                    mod_dt = datetime.fromtimestamp(lmt / 1000, tz=timezone.utc) + timedelta(hours=8)
                 except Exception:
                     continue
                 who = kr.get('last_modified_by')
@@ -813,7 +824,7 @@ def update_edit_log(krs, name_map, today_str=None):
                                                 'note': '整段重写' if dmode == 'rewrite' else ''})
                 entries.append({
                     'date': mod_dt.strftime('%Y-%m-%d'),
-                    'ts': datetime.now().strftime('%Y-%m-%d %H:%M'),
+                    'ts': now_beijing().strftime('%Y-%m-%d %H:%M'),
                     'unionId': who,
                     'name': _resolve_name(who, name_map),
                     'recordId': rid,
@@ -895,7 +906,7 @@ def _gen_edit_log_page(entries, out_path, today_str=None):
     """生成「更新留档」独立页面 docs/edit-log.html：
     每条更新记录 = 更新人 + KR主题 + 具体更新内容（增量为主显，修改前后全文折叠可查）。
     增量逻辑：'A' 更新为 'A+B' 时，新增内容只显示 '+B'，不显示合并后的全文。"""
-    today_str = today_str or date.today().isoformat()
+    today_str = today_str or today_beijing().isoformat()
     items = list(entries or [])
     items.sort(key=lambda e: (str(e.get('date', '')), str(e.get('ts', ''))), reverse=True)
 
@@ -2944,7 +2955,7 @@ def main():
     skip_send = '--skip-send' in sys.argv
     send_only = '--send-only' in sys.argv
     allow_no_url = '--allow-no-url' in sys.argv
-    today = date.today()
+    today = today_beijing()
     today_str = today.isoformat()
     week_str = get_iso_week(today)
     mode_label = ''

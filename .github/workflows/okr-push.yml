@@ -1,11 +1,8 @@
 name: OKR Push Notify
 
-# 独立推送任务：与每小时的静默抓取(okr-weekly.yml)分离，只在周五上午发一条链接
+# 独立推送任务：与每小时的静默抓取(okr-weekly.yml)分离，仅手动触发（无定时，防重复推送）
 on:
-  schedule:
-    # 每周五 00:30 UTC = 北京时间 周五 08:30（推个人 + 全国网点部门经理群）
-    - cron: '30 0 * * 5'
-  workflow_dispatch: # 允许手动触发（立即推送一条链接）
+  workflow_dispatch: # 仅允许手动触发（立即推送一条链接到个人 + 全国网点部门经理群）
 
 jobs:
   okr-push:
